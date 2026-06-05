@@ -135,7 +135,15 @@ function serializeBoard(board) {
  * Deserialize board from storage/transmission
  */
 function deserializeBoard(serialized) {
-  return JSON.parse(serialized);
+  try {
+    const parsed = JSON.parse(serialized);
+    if (!Array.isArray(parsed) || !Array.isArray(parsed[0])) {
+      throw new Error('Invalid board structure');
+    }
+    return parsed;
+  } catch (e) {
+    throw new Error('Invalid board data');
+  }
 }
 
 module.exports = {
