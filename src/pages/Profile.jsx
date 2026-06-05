@@ -2,6 +2,20 @@ import { useState, useEffect } from 'react';
 import { userService } from '../services/userService';
 import './Profile.css';
 
+// URL validation utility to prevent XSS attacks
+const isValidImageUrl = (url) => {
+  if (!url) return true; // Empty URLs are handled by fallback
+  // Allow relative paths starting with /
+  if (url.startsWith('/')) return true;
+  try {
+    const parsed = new URL(url);
+    // Only allow http and https protocols
+    return ['http:', 'https:'].includes(parsed.protocol);
+  } catch {
+    return false;
+  }
+};
+
 function Profile() {
   const [profile, setProfile] = useState(null);
   const [stats, setStats] = useState(null);
@@ -71,6 +85,11 @@ function Profile() {
     setEditMode(false);
   };
 
+  // Sanitize avatar URL - only use it if it's a valid image URL
+  const avatarSrc = isValidImageUrl(profile?.avatar) 
+    ? profile.avatar 
+    : '/default-avatar.png';
+
   if (loading && !profile) {
     return <div className="loading">Loading profile...</div>;
   }
@@ -121,7 +140,7 @@ function Profile() {
           <div className="profile-info">
             <div className="avatar">
               <img
-                src={profile?.avatar || '/default-avatar.png'}
+                src={avatarSrc}
                 alt="Avatar"
               />
             </div>
