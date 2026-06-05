@@ -1,11 +1,15 @@
 const secret = process.env.JWT_SECRET;
 const password = process.env.DB_PASSWORD;
 
-if (!secret && process.env.NODE_ENV === 'production') {
+// Critical fix: Must wrap comparison in parentheses due to operator precedence
+// (!secret && process.env.NODE_ENV === 'production') was evaluated as:
+// (!secret) && (process.env.NODE_ENV === 'production') 
+// which is broken - validation never triggered in production!
+if (!secret && (process.env.NODE_ENV === 'production')) {
   throw new Error('JWT_SECRET environment variable is required in production');
 }
 
-if (!password && process.env.NODE_ENV === 'production') {
+if (!password && (process.env.NODE_ENV === 'production')) {
   throw new Error('DB_PASSWORD environment variable is required in production');
 }
 
