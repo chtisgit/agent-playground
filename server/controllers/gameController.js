@@ -12,40 +12,48 @@ export function startSinglePlayer(req, res) {
     // Generate board using MahjongService
     const { tiles, positions } = MahjongService.generateBoard(difficulty);
     
-    // Record start of game
-    const gameId = GameModel.recordGame({
+    // Format tiles with game state properties
+    const formattedTiles = tiles.map((tile, index) => ({
+      ...tile,
+      index,
+      removed: false,
+      selected: false
+    }));
+    
+    // Create active game for real-time play (server-side state)
+    const gameId = GameModel.createGame({
       userId: req.user.id,
-      gameType: 'single',
+      gameType: 'singlePlayer',
       difficulty,
-      score: 0,
-      duration: 0,
-      result: 'in_progress'
+      tiles: formattedTiles,
+      tilePositions: positions
     });
     
-    // Save initial game state
-    const stateId = GameModel.saveGameState({
-      userId: req.user.id,
-      gameType: 'single',
-      difficulty,
-      tiles,
-      tilePositions: positions,
-      score: 0,
-      moves: 0,
-      hintsUsed: 0
-    });
+    // Get the created game
+    const game = GameModel.getGameById(gameId, req.user.id);
     
     res.status(201).json({
-      gameId,
-      stateId,
-      tiles,
-      positions,
-      difficulty
+      game: {
+        id: gameId,
+        gameType: 'singlePlayer',
+        difficulty,
+        tiles: game.tiles,
+        positions: game.tilePositions,
+        score: 0,
+        moves: 0,
+        matches: 0,
+        ended: false,
+        status: 'active'
+      },
+      status: 'active'
     });
   } catch (error) {
     console.error('Start single-player game error:', error);
     res.status(500).json({ error: 'Failed to start single-player game' });
   }
 }
+
+// === Existing flat routes (for backward compatibility) ===
 
 /**
  * Save current game state

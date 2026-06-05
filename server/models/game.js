@@ -1,6 +1,77 @@
 import db from './database.js';
 
+// In-memory storage for active games
+const activeGames = new Map();
+let gameIdCounter = 1;
+
 export const GameModel = {
+  // === In-memory active game methods (for real-time game management) ===
+  
+  /**
+   * Create a new active game
+   * @param {object} gameData 
+   * @returns {number} Game ID
+   */
+  createGame(gameData) {
+    const gameId = gameIdCounter++;
+    const game = {
+      id: gameId,
+      userId: gameData.userId,
+      gameType: gameData.gameType,
+      difficulty: gameData.difficulty,
+      tiles: gameData.tiles,
+      tilePositions: gameData.tilePositions,
+      score: 0,
+      moves: 0,
+      matches: 0,
+      status: 'active',
+      createdAt: new Date()
+    };
+    activeGames.set(gameId, game);
+    return gameId;
+  },
+
+  /**
+   * Get an active game by ID with user verification
+   * @param {number} gameId 
+   * @param {number} userId 
+   * @returns {object|null} Game object or null
+   */
+  getGameById(gameId, userId) {
+    const game = activeGames.get(parseInt(gameId));
+    if (game && game.userId === userId) {
+      return game;
+    }
+    return null;
+  },
+
+  /**
+   * Update an active game
+   * @param {number} gameId 
+   * @param {object} gameData 
+   * @returns {boolean} Success status
+   */
+  updateGame(gameId, gameData) {
+    const id = parseInt(gameId);
+    if (activeGames.has(id)) {
+      const existing = activeGames.get(id);
+      activeGames.set(id, { ...existing, ...gameData });
+      return true;
+    }
+    return false;
+  },
+
+  /**
+   * Delete an active game
+   * @param {number} gameId 
+   * @returns {boolean} Success status
+   */
+  deleteGame(gameId) {
+    return activeGames.delete(parseInt(gameId));
+  },
+
+  // === Persistent game state methods (for save/resume) ===
+  
   /**
    * Save a game state for later resume
    * @param {object} gameData 
