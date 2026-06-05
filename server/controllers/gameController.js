@@ -2,6 +2,52 @@ import GameModel from '../models/game.js';
 import { MahjongService } from '../services/mahjongService.js';
 
 /**
+ * Start a single-player game
+ * POST /api/games/single-player
+ */
+export function startSinglePlayer(req, res) {
+  try {
+    const { difficulty = 'medium' } = req.body;
+    
+    // Generate board using MahjongService
+    const { tiles, positions } = MahjongService.generateBoard(difficulty);
+    
+    // Record start of game
+    const gameId = GameModel.recordGame({
+      userId: req.user.id,
+      gameType: 'single',
+      difficulty,
+      score: 0,
+      duration: 0,
+      result: 'in_progress'
+    });
+    
+    // Save initial game state
+    const stateId = GameModel.saveGameState({
+      userId: req.user.id,
+      gameType: 'single',
+      difficulty,
+      tiles,
+      tilePositions: positions,
+      score: 0,
+      moves: 0,
+      hintsUsed: 0
+    });
+    
+    res.status(201).json({
+      gameId,
+      stateId,
+      tiles,
+      positions,
+      difficulty
+    });
+  } catch (error) {
+    console.error('Start single-player game error:', error);
+    res.status(500).json({ error: 'Failed to start single-player game' });
+  }
+}
+
+/**
  * Save current game state
  * POST /api/game/save
  */

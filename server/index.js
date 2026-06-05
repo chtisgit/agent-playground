@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { initializeDatabase } from './models/database.js';
 import gameRoutes from './routes/game.js';
+import gamesRoutes from './routes/games.js';
 import authRoutes from './routes/auth.js';
 
 // CORS allowed origins - restrict based on environment
@@ -28,10 +29,10 @@ const allowedOrigins = getAllowedOrigins();
  */
 function sanitize(str) {
   return String(str)
-    .replace(/&/g, '&')
-    .replace(/</g, '<')
-    .replace(/>/g, '>')
-    .replace(/"/g, '"')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
     .replace(/'/g, '&#x27;')
     .slice(0, 500); // Limit message length
 }
@@ -78,6 +79,7 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api/game', gameRoutes);
+app.use('/api/games', gamesRoutes);  // New plural route for games (includes /single-player)
 app.use('/api/auth', authRoutes);
 
 // Socket.IO for real-time multiplayer
