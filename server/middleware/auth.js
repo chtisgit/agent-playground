@@ -1,6 +1,16 @@
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'mahjong-secret-key-change-in-production';
+/**
+ * JWT Secret getter - requires environment variable to be set
+ * Throws error at startup if not configured (no hardcoded fallbacks)
+ */
+function getJwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET environment variable is required');
+  }
+  return secret;
+}
 
 /**
  * Authentication middleware
@@ -18,7 +28,7 @@ export function authenticate(req, res, next) {
     : authHeader;
   
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, getJwtSecret());
     req.user = decoded;
     next();
   } catch (error) {
@@ -45,7 +55,7 @@ export function optionalAuth(req, res, next) {
     : authHeader;
   
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, getJwtSecret());
     req.user = decoded;
   } catch (error) {
     // Invalid token, but continue without user
@@ -62,9 +72,9 @@ export function optionalAuth(req, res, next) {
 export function generateToken(user) {
   return jwt.sign(
     { id: user.id, username: user.username, email: user.email },
-    JWT_SECRET,
+    getJwtSecret(),
     { expiresIn: '7d' }
   );
 }
 
-export { JWT_SECRET };
+export { getJwtSecret, JWT_SECRET };

@@ -2,6 +2,9 @@ import UserModel from '../models/user.js';
 import { generateToken } from '../middleware/auth.js';
 import bcrypt from 'bcryptjs';
 
+// Email format validation regex
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 // Simple password hashing for registration
 async function hashPassword(password) {
   return bcrypt.hash(password, 10);
@@ -26,6 +29,10 @@ export async function register(req, res) {
     
     if (username.length < 3 || username.length > 20) {
       return res.status(400).json({ error: 'Username must be 3-20 characters' });
+    }
+    
+    if (!EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
     }
     
     if (password.length < 6) {
@@ -122,22 +129,25 @@ export function getProfile(req, res) {
  * Update user profile
  * PUT /api/auth/profile
  */
-export function updateProfile(req, res) {
+export async function updateProfile(req, res) {
   try {
     const { email, password } = req.body;
-    const updates = {};
     
     if (email) {
-      updates.email = email;
+      // Validate email format if provided
+      if (!EMAIL_REGEX.test(email)) {
+        return res.status(400).json({ error: 'Invalid email format' });
+      }
+      // Note: Adding email update functionality would go here
+      // For now, we only support password updates
     }
     
     if (password && password.length >= 6) {
-      hashPassword(password).then(hash => {
-        UserModel.updatePassword(req.user.id, hash);
-      });
+      // Properly await the async password hashing operation
+      const passwordHash = await hashPassword(password);
+      UserModel.updatePassword(req.user.id, passwordHash);
     }
     
-    // For now, just acknowledge update
     res.json({ message: 'Profile updated successfully' });
   } catch (error) {
     console.error('Update profile error:', error);

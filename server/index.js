@@ -5,9 +5,45 @@ import { initializeDatabase } from './models/database.js';
 import gameRoutes from './routes/game.js';
 import authRoutes from './routes/auth.js';
 
+// CORS allowed origins - restrict based on environment
+const getAllowedOrigins = () => {
+  if (process.env.NODE_ENV === 'production') {
+    // Production: Only allow specific domains
+    const allowed = process.env.ALLOWED_ORIGINS?.split(',') || [];
+    if (allowed.length === 0) {
+      console.warn('WARNING: No ALLOWED_ORIGINS configured for production!');
+    }
+    return allowed;
+  }
+  // Development: Allow localhost dev servers
+  return ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173'];
+};
+
+const allowedOrigins = getAllowedOrigins();
+
+/**
+ * Sanitize user input to prevent XSS attacks
+ * @param {string} str - Input string to sanitize
+ * @returns {string} Sanitized string
+ */
+function sanitize(str) {
+  return String(str)
+    .replace(/&/g, '&')
+    .replace(/</g, '<')
+    .replace(/>/g, '>')
+    .replace(/"/g, '"')
+    .replace(/'/g, '&#x27;')
+    .slice(0, 500); // Limit message length
+}
+
 const app = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer);
+const io = new Server(httpServer, {
+  cors: {
+    origin: allowedOrigins,
+    methods: ['GET', 'POST']
+  }
+});
 
 // Initialize database
 initializeDatabase();
@@ -15,9 +51,13 @@ initializeDatabase();
 // Middleware
 app.use(express.json());
 
-// CORS for development
+// CORS configuration
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   if (req.method === 'OPTIONS') {
@@ -73,12 +113,12 @@ io.on('connection', (socket) => {
     });
   });
   
-  // Handle chat message
+  // Handle chat message - with XSS sanitization
   socket.on('chat_message', (data) => {
     io.to(`game_${data.gameId}`).emit('chat_message', {
       playerId: socket.id,
-      username: data.username,
-      message: data.message,
+      username: sanitize(data.username || 'Anonymous'),
+      message: sanitize(data.message || ''),
       timestamp: new Date().toISOString()
     });
   });
@@ -94,7 +134,6 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-
 httpServer.listen(PORT, () => {
   console.log(`Mahjong server running on port ${PORT}`);
 });
