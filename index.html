@@ -3,50 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Prismatic Tetris</title>
-  <link rel="stylesheet" href="styles.css">
+  <title>Web-based Mahjong</title>
+  <link rel="stylesheet" href="/src/styles.css">
 </head>
 <body>
-  <div class="game-container">
-    <div class="sidebar left">
-      <h1>PRISMATIC<br>TETRIS</h1>
-      <div class="panel stats">
-        <div class="stat"><label>SCORE</label><span id="score">0</span></div>
-        <div class="stat"><label>LEVEL</label><span id="level">1</span></div>
-        <div class="stat"><label>LINES</label><span id="lines">0</span></div>
-      </div>
-      <div class="controls-hint">
-        <p><b>ARROWS</b> Move</p>
-        <p><b>UP</b> Rotate</p>
-        <p><b>DOWN</b> Soft Drop</p>
-        <p><b>SPACE</b> Hard Drop</p>
-        <p><b>P</b> Pause</p>
-        <p><b>R</b> Restart</p>
-      </div>
-    </div>
-
-    <div class="board-wrap">
-      <canvas id="game-board" width="300" height="600"></canvas>
-      <div id="overlay" class="overlay hidden">
-        <h2 id="overlay-title">PAUSED</h2>
-        <p id="overlay-msg">Press P to resume</p>
-      </div>
-    </div>
-
-    <div class="sidebar right">
-      <div class="panel">
-        <label>NEXT</label>
-        <canvas id="next-piece" width="120" height="100"></canvas>
-      </div>
-      <div class="panel">
-        <label>HIGH SCORE</label>
-        <span id="highscore">0</span>
-      </div>
-      <button id="btn-pause">Pause</button>
-      <button id="btn-restart">Restart</button>
-    </div>
-  </div>
-
-  <script src="tetris.js"></script>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>
