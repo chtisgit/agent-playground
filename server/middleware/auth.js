@@ -77,4 +77,4 @@ export function generateToken(user) {
   );
 }
 
-export { getJwtSecret, JWT_SECRET };
+export { getJwtSecret };

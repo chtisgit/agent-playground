@@ -35,9 +35,39 @@ cd agent-playground
 # Install dependencies
 npm install
 
-# Start development server
+# Start frontend development server (http://localhost:5173)
 npm run dev
+
+# Start backend server (in a separate terminal)
+npm run server
 ```
+
+### Running the Backend
+
+The backend server requires a `JWT_SECRET` environment variable for authentication:
+
+```bash
+# Set the JWT secret (replace with a secure random string)
+export JWT_SECRET="your-secure-secret-here"
+
+# Start the backend server
+npm run server
+```
+
+The backend server runs on port 3000 by default. You can set a custom port:
+
+```bash
+export PORT=3000
+npm run server
+```
+
+### Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| JWT_SECRET | Secret key for JWT token generation | Yes |
+| PORT | Server port (default: 3000) | No |
+| NODE_ENV | Environment (development/production) | No |
 
 ## Project Structure
 
