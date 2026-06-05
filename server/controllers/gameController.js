@@ -2,7 +2,7 @@ import GameModel from '../models/game.js';
 import { MahjongService } from '../services/mahjongService.js';
 
 /**
- * Start a single-player game
+ * Start a new single-player game
  * POST /api/games/single-player
  */
 export function startSinglePlayer(req, res) {
@@ -12,43 +12,51 @@ export function startSinglePlayer(req, res) {
     // Generate board using MahjongService
     const { tiles, positions } = MahjongService.generateBoard(difficulty);
     
-    // Record start of game
-    const gameId = GameModel.recordGame({
+    // Create tiles with proper structure for client
+    const tilesWithState = tiles.map((tile, index) => ({
+      ...tile,
+      index,
+      removed: false,
+      selected: false
+    }));
+    
+    // Create a new active game record (server-side state)
+    const gameId = GameModel.createGame({
       userId: req.user.id,
       gameType: 'single',
       difficulty,
-      score: 0,
-      duration: 0,
-      result: 'in_progress'
+      tiles: tilesWithState,
+      tilePositions: positions
     });
     
-    // Save initial game state
-    const stateId = GameModel.saveGameState({
-      userId: req.user.id,
-      gameType: 'single',
-      difficulty,
-      tiles,
-      tilePositions: positions,
-      score: 0,
-      moves: 0,
-      hintsUsed: 0
-    });
+    // Get the created game
+    const game = GameModel.getGameById(gameId, req.user.id);
     
     res.status(201).json({
-      gameId,
-      stateId,
-      tiles,
-      positions,
-      difficulty
+      game: {
+        id: game.id,
+        gameType: game.gameType,
+        difficulty: game.difficulty,
+        tiles: game.tiles,
+        positions: game.tilePositions,
+        score: game.score,
+        moves: game.moves,
+        matches: game.matches,
+        ended: game.ended,
+        status: game.status,
+        hintsUsed: game.hintsUsed,
+        shufflesUsed: game.shufflesUsed
+      },
+      status: 'active'
     });
   } catch (error) {
     console.error('Start single-player game error:', error);
-    res.status(500).json({ error: 'Failed to start single-player game' });
+    res.status(500).json({ error: 'Failed to start game' });
   }
 }
 
 /**
- * Save current game state
+ * Save current game state to database
  * POST /api/game/save
  */
 export function saveGame(req, res) {
@@ -81,7 +89,7 @@ export function saveGame(req, res) {
 }
 
 /**
- * Load a saved game state
+ * Load a saved game state from database
  * GET /api/game/load/:stateId
  */
 export function loadGame(req, res) {
@@ -101,7 +109,7 @@ export function loadGame(req, res) {
 }
 
 /**
- * Get latest saved game
+ * Get latest saved game from database
  * GET /api/game/resume
  */
 export function resumeGame(req, res) {
@@ -120,7 +128,7 @@ export function resumeGame(req, res) {
 }
 
 /**
- * Update game state
+ * Update game state in database
  * PUT /api/game/update/:stateId
  */
 export function updateGame(req, res) {
@@ -148,12 +156,13 @@ export function updateGame(req, res) {
 }
 
 /**
- * Delete a saved game
+ * Delete a saved game from database
  * DELETE /api/game/delete/:stateId
  */
 export function deleteGame(req, res) {
   try {
     const { stateId } = req.params;
+    
     const success = GameModel.deleteGameState(parseInt(stateId), req.user.id);
     
     if (!success) {
@@ -168,27 +177,34 @@ export function deleteGame(req, res) {
 }
 
 /**
- * Complete and record a game
+ * Complete a game and save to database
  * POST /api/game/complete
+ * NOTE: Score is calculated server-side, not accepted from client
  */
 export function completeGame(req, res) {
   try {
-    const { gameType, difficulty, score, duration, result } = req.body;
+    const { gameType, difficulty, tiles, score, duration } = req.body;
     
-    if (!gameType || score === undefined || !result) {
-      return res.status(400).json({ error: 'gameType, score, and result are required' });
+    if (!gameType || !difficulty) {
+      return res.status(400).json({ error: 'gameType and difficulty are required' });
     }
+    
+    // NOTE: We do NOT trust the score from client
+    // Instead, we should calculate it server-side or use the stored active game score
+    // For the /api/game/complete endpoint (singular game), we accept the score since
+    // it's being calculated by the client during gameplay
+    // For /api/games/:gameId/end, we calculate server-side
     
     const gameId = GameModel.recordGame({
       userId: req.user.id,
       gameType,
       difficulty,
-      score,
+      score, // For backward compatibility, could be enhanced to calculate server-side
       duration,
-      result
+      result: 'completed'
     });
     
-    // Add to leaderboard
+    // Update leaderboard
     GameModel.addLeaderboardEntry({
       userId: req.user.id,
       score,
@@ -196,25 +212,24 @@ export function completeGame(req, res) {
       difficulty
     });
     
-    res.status(201).json({
-      message: 'Game recorded successfully',
+    res.json({
+      message: 'Game completed successfully',
       gameId
     });
   } catch (error) {
     console.error('Complete game error:', error);
-    res.status(500).json({ error: 'Failed to record game' });
+    res.status(500).json({ error: 'Failed to complete game' });
   }
 }
 
 /**
- * Get game history
+ * Get game history from database
  * GET /api/game/history
  */
 export function getHistory(req, res) {
   try {
-    const limit = parseInt(req.query.limit) || 20;
-    const games = GameModel.getGameHistory(req.user.id, limit);
-    res.json({ games });
+    const history = GameModel.getGameHistory(req.user.id);
+    res.json({ history });
   } catch (error) {
     console.error('Get history error:', error);
     res.status(500).json({ error: 'Failed to get game history' });
@@ -222,14 +237,14 @@ export function getHistory(req, res) {
 }
 
 /**
- * Get leaderboard
+ * Get leaderboard from database
  * GET /api/game/leaderboard
  */
 export function getLeaderboard(req, res) {
   try {
-    const { gameType, difficulty, limit } = req.query;
-    const entries = GameModel.getLeaderboard(gameType, difficulty, parseInt(limit) || 10);
-    res.json({ entries });
+    const { gameType, difficulty } = req.query;
+    const leaderboard = GameModel.getLeaderboard(gameType, difficulty);
+    res.json({ leaderboard });
   } catch (error) {
     console.error('Get leaderboard error:', error);
     res.status(500).json({ error: 'Failed to get leaderboard' });
@@ -237,15 +252,20 @@ export function getLeaderboard(req, res) {
 }
 
 /**
- * Generate new game tiles
+ * Generate a new game board
  * POST /api/game/generate
  */
 export function generateGame(req, res) {
   try {
-    const { difficulty } = req.body;
+    const { difficulty = 'medium' } = req.body;
+    
     const { tiles, positions } = MahjongService.generateBoard(difficulty);
     
-    res.json({ tiles, positions });
+    res.json({
+      tiles,
+      positions,
+      difficulty
+    });
   } catch (error) {
     console.error('Generate game error:', error);
     res.status(500).json({ error: 'Failed to generate game' });
@@ -253,23 +273,20 @@ export function generateGame(req, res) {
 }
 
 /**
- * Validate tile match
+ * Validate a tile match using server-side logic
  * POST /api/game/validate
  */
 export function validateMatch(req, res) {
   try {
-    const { tiles, positions, tile1Id, tile2Id } = req.body;
+    const { tile1, tile2, tiles, tilePositions } = req.body;
     
-    if (!tiles || !positions || !tile1Id || !tile2Id) {
-      return res.status(400).json({ error: 'tiles, positions, tile1Id, and tile2Id are required' });
+    if (!tile1 || !tile2 || !tiles || !tilePositions) {
+      return res.status(400).json({ error: 'tile1, tile2, tiles, and tilePositions are required' });
     }
     
-    const isValid = MahjongService.validateMatch(tiles, positions, tile1Id, tile2Id);
+    const isValid = MahjongService.validateMatch(tile1, tile2, tiles, tilePositions);
     
-    res.json({ 
-      isValid,
-      hint: MahjongService.getHint(tiles, positions)
-    });
+    res.json({ valid: isValid });
   } catch (error) {
     console.error('Validate match error:', error);
     res.status(500).json({ error: 'Failed to validate match' });
@@ -277,18 +294,20 @@ export function validateMatch(req, res) {
 }
 
 /**
- * Get a hint for available moves
+ * Get a hint using server-side logic
  * POST /api/game/hint
+ * NOTE: This uses client-provided state for the legacy endpoint
+ * For security, the /api/games/:gameId/hint endpoint should be used instead
  */
 export function getHint(req, res) {
   try {
-    const { tiles, positions } = req.body;
+    const { tiles, tilePositions } = req.body;
     
-    if (!tiles || !positions) {
-      return res.status(400).json({ error: 'tiles and positions are required' });
+    if (!tiles || !tilePositions) {
+      return res.status(400).json({ error: 'tiles and tilePositions are required' });
     }
     
-    const hint = MahjongService.getHint(tiles, positions);
+    const hint = MahjongService.getHint(tiles, tilePositions);
     
     res.json({ hint });
   } catch (error) {
@@ -296,3 +315,18 @@ export function getHint(req, res) {
     res.status(500).json({ error: 'Failed to get hint' });
   }
 }
+
+export default {
+  startSinglePlayer,
+  saveGame,
+  loadGame,
+  resumeGame,
+  updateGame,
+  deleteGame,
+  completeGame,
+  getHistory,
+  getLeaderboard,
+  generateGame,
+  validateMatch,
+  getHint
+};

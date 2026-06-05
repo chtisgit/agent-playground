@@ -1,8 +1,78 @@
 import db from './database.js';
 
+// In-memory store for active games (server-side state management)
+const activeGames = new Map();
+let gameIdCounter = 1;
+
 export const GameModel = {
   /**
-   * Save a game state for later resume
+   * Create a new active game
+   * @param {object} gameData 
+   * @returns {number} Game ID
+   */
+  createGame(gameData) {
+    const gameId = gameIdCounter++;
+    const game = {
+      id: gameId,
+      userId: gameData.userId,
+      gameType: gameData.gameType || 'single',
+      difficulty: gameData.difficulty || 'medium',
+      tiles: gameData.tiles || [],
+      tilePositions: gameData.tilePositions || {},
+      score: 0,
+      moves: 0,
+      matches: 0,
+      hintsUsed: 0,
+      shufflesUsed: 0,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      ended: false
+    };
+    activeGames.set(gameId, game);
+    return gameId;
+  },
+
+  /**
+   * Get an active game by ID with user verification
+   * @param {number} gameId 
+   * @param {number} userId 
+   * @returns {object|null} Game object or null
+   */
+  getGameById(gameId, userId) {
+    const game = activeGames.get(parseInt(gameId));
+    if (game && game.userId === userId) {
+      return game;
+    }
+    return null;
+  },
+
+  /**
+   * Update an active game
+   * @param {number} gameId 
+   * @param {object} gameData 
+   * @returns {boolean} Success status
+   */
+  updateGame(gameId, gameData) {
+    const id = parseInt(gameId);
+    const existingGame = activeGames.get(id);
+    if (existingGame) {
+      activeGames.set(id, { ...existingGame, ...gameData });
+      return true;
+    }
+    return false;
+  },
+
+  /**
+   * Delete an active game
+   * @param {number} gameId 
+   * @returns {boolean} Success status
+   */
+  deleteGame(gameId) {
+    return activeGames.delete(parseInt(gameId));
+  },
+
+  /**
+   * Save a game state for later resume (to database)
    * @param {object} gameData 
    * @returns {number} Saved state ID
    */
