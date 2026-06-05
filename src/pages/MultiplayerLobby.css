@@ -1,0 +1,158 @@
+.lobby-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  padding: 1.5rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.player-setup {
+  background: #f5f5f5;
+  padding: 1.5rem;
+  border-radius: 8px;
+  width: 100%;
+  text-align: center;
+}
+
+.player-setup h2 {
+  color: #d32f2f;
+  margin-bottom: 1rem;
+}
+
+.player-setup label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.player-setup input {
+  padding: 0.75rem 1rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  width: 100%;
+  max-width: 300px;
+  font-size: 1rem;
+}
+
+.lobby-actions {
+  width: 100%;
+}
+
+.create-room {
+  background: #e3f2fd;
+  padding: 1.5rem;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.create-room h3 {
+  color: #1565c0;
+  margin-bottom: 1rem;
+}
+
+.room-create-form {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.room-create-form input {
+  padding: 0.75rem 1rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  width: 200px;
+}
+
+.room-list {
+  width: 100%;
+  background: #fff;
+  padding: 1.5rem;
+  border-radius: 8px;
+}
+
+.room-list h3 {
+  color: #333;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.no-rooms {
+  text-align: center;
+  color: #666;
+  font-style: italic;
+}
+
+.rooms-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.room-card {
+  background: #fafafa;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  text-align: center;
+}
+
+.room-card h4 {
+  color: #333;
+  margin-bottom: 0.5rem;
+}
+
+.room-card p {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.current-room {
+  background: #e8f5e9;
+  padding: 2rem;
+  border-radius: 8px;
+  text-align: center;
+  width: 100%;
+  max-width: 500px;
+}
+
+.current-room h2 {
+  color: #2e7d32;
+  margin-bottom: 1rem;
+}
+
+.room-info {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  margin-bottom: 1rem;
+}
+
+.player-list {
+  background: #fff;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.player-list h3 {
+  color: #555;
+  margin-bottom: 0.5rem;
+}
+
+.player-list ul {
+  list-style: none;
+  padding: 0;
+}
+
+.player-list li {
+  padding: 0.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+.waiting-message {
+  color: #ff9800;
+  font-style: italic;
+}
