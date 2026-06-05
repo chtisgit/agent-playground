@@ -4,7 +4,7 @@ import { Server } from 'socket.io';
 import { initializeDatabase } from './models/database.js';
 import gameRoutes from './routes/game.js';
 import authRoutes from './routes/auth.js';
-import singlePlayerRoutes from './routes/singlePlayer.js';
+import gamesRoutes from './routes/games.js';
 
 // CORS allowed origins - restrict based on environment
 const getAllowedOrigins = () => {
@@ -79,7 +79,7 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api/game', gameRoutes);
-app.use('/api/games', singlePlayerRoutes); // New singular game endpoints for single-player
+app.use('/api/games', gamesRoutes); // Security-compliant single-player game endpoints
 app.use('/api/auth', authRoutes);
 
 // Socket.IO for real-time multiplayer
