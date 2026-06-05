@@ -1,6 +1,12 @@
 const secret = process.env.JWT_SECRET;
+const password = process.env.DB_PASSWORD;
+
 if (!secret && process.env.NODE_ENV === 'production') {
   throw new Error('JWT_SECRET environment variable is required in production');
+}
+
+if (!password && process.env.NODE_ENV === 'production') {
+  throw new Error('DB_PASSWORD environment variable is required in production');
 }
 
 module.exports = {
@@ -15,6 +21,6 @@ module.exports = {
     port: parseInt(process.env.DB_PORT) || 5432,
     name: process.env.DB_NAME || 'mahjong',
     user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'postgres'
+    password: password || 'postgres'
   }
 };
