@@ -8,12 +8,12 @@ const TILE_SYMBOLS = {
   character: '字',
 };
 
-function Tile({ tile, index, isHint, disabled, onClick }) {
+function Tile({ tile, index, isHint, isSelected, disabled, onClick }) {
   if (tile.removed) {
     return <div className="tile tile-empty" />;
   }
 
-  const tileClass = `tile ${tile.type || 'bamboo'} ${isHint ? 'tile-hint' : ''} ${disabled ? 'tile-disabled' : ''}`;
+  const tileClass = `tile ${tile.type || 'bamboo'} ${isHint ? 'tile-hint' : ''} ${isSelected ? 'tile-selected' : ''} ${disabled ? 'tile-disabled' : ''}`;
 
   const getTileContent = () => {
     if (typeof tile.symbol === 'object') {
@@ -32,11 +32,17 @@ function Tile({ tile, index, isHint, disabled, onClick }) {
       tabIndex={disabled ? -1 : 0}
       aria-label={`Tile ${index + 1}: ${tile.symbol}`}
       data-type={tile.type}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          if (!disabled) onClick();
+        }
+      }}
     >
       <div className="tile-content">
         {getTileContent()}
         <span className="tile-type">{tile.type || ''}</span>
       </div>
+      <div className="tile-highlight" />
     </div>
   );
 }

@@ -11,6 +11,7 @@
   align-items: center;
   justify-content: center;
   position: relative;
+  overflow: hidden;
 }
 
 .tile:hover:not(.tile-disabled) {
@@ -54,6 +55,39 @@
   }
 }
 
+/* Selected tile styling */
+.tile-selected {
+  background: linear-gradient(145deg, #bbdefb 0%, #90caf9 100%) !important;
+  border-color: #1976d2 !important;
+  box-shadow: 0 0 15px rgba(25, 118, 210, 0.6) !important;
+  animation: selected-pulse 0.8s ease-in-out infinite;
+}
+
+@keyframes selected-pulse {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(25, 118, 210, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(25, 118, 210, 0.8);
+  }
+}
+
+.tile-highlight {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.tile:hover:not(.tile-disabled) .tile-highlight {
+  opacity: 1;
+}
+
+/* Tile content styling */
 .tile-content {
   display: flex;
   flex-direction: column;
@@ -61,6 +95,8 @@
   justify-content: center;
   height: 100%;
   width: 100%;
+  position: relative;
+  z-index: 1;
 }
 
 .tile-symbol {

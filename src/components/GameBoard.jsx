@@ -1,7 +1,7 @@
 import Tile from './Tile';
 import './GameBoard.css';
 
-function GameBoard({ tiles, onTileClick, hintTile }) {
+function GameBoard({ tiles, onTileClick, hintTile, selectedTile }) {
   if (!tiles || tiles.length === 0) {
     return <div className="game-board-empty">No tiles available</div>;
   }
@@ -15,6 +15,7 @@ function GameBoard({ tiles, onTileClick, hintTile }) {
             tile={tile}
             index={index}
             isHint={hintTile === index}
+            isSelected={selectedTile === index}
             disabled={tile.removed}
             onClick={() => !tile.removed && onTileClick(index)}
           />
