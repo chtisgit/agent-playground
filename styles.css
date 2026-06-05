@@ -1,0 +1,167 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600&display=swap');
+
+:root {
+  --bg: #0b0d12;
+  --panel-bg: rgba(20, 25, 35, 0.65);
+  --accent: #00f0ff;
+  --accent2: #ff2a6d;
+  --accent3: #9d4edd;
+  --text: #e0e6ed;
+  --muted: #8a9bb0;
+  --glass-border: rgba(255,255,255,0.07);
+  --shadow: 0 8px 32px rgba(0,0,0,0.45);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  background-image:
+    radial-gradient(circle at 15% 20%, rgba(0,240,255,0.08) 0%, transparent 40%),
+    radial-gradient(circle at 85% 80%, rgba(255,42,109,0.07) 0%, transparent 40%);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.game-container {
+  display: flex;
+  gap: 28px;
+  padding: 24px;
+  align-items: flex-start;
+}
+
+.sidebar {
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.sidebar h1 {
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 900;
+  font-size: 1.7rem;
+  letter-spacing: 3px;
+  color: var(--accent);
+  text-shadow: 0 0 18px rgba(0,240,255,0.35);
+  line-height: 1.2;
+  margin-bottom: 4px;
+}
+
+.panel {
+  background: var(--panel-bg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+
+.stats { display: flex; flex-direction: column; gap: 16px; }
+.stat { display: flex; justify-content: space-between; align-items: center; }
+.stat label { color: var(--accent); font-family: 'Orbitron', sans-serif; font-size: 0.78rem; letter-spacing: 1.5px; }
+.stat span { font-family: 'Orbitron', sans-serif; font-size: 1.35rem; color: #fff; }
+
+.sidebar label {
+  display: block;
+  color: var(--accent);
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 1.5px;
+  margin-bottom: 10px;
+}
+
+#highscore { font-family: 'Orbitron', sans-serif; font-size: 1.6rem; color: var(--accent3); }
+
+#next-piece { display: block; margin: 0 auto; }
+
+.board-wrap {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.06),
+    0 0 30px rgba(0,240,255,0.06),
+    var(--shadow);
+}
+
+#game-board {
+  display: block;
+  background: rgba(8,10,14,0.92);
+  image-rendering: pixelated;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6,8,12,0.82);
+  backdrop-filter: blur(6px);
+  transition: opacity .25s ease;
+}
+.overlay.hidden { opacity: 0; pointer-events: none; }
+
+.overlay h2 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 2.2rem;
+  color: var(--accent2);
+  text-shadow: 0 0 20px rgba(255,42,109,0.45);
+  margin-bottom: 8px;
+  letter-spacing: 3px;
+}
+.overlay p { color: var(--muted); font-size: 0.95rem; }
+
+.controls-hint p {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin: 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.controls-hint b {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.6rem;
+  letter-spacing: 1px;
+  color: var(--bg);
+  background: var(--accent);
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+button {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.85rem;
+  letter-spacing: 1.5px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  cursor: pointer;
+  background: rgba(0,240,255,0.06);
+  color: var(--accent);
+  transition: transform .12s ease, box-shadow .2s ease, background .2s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+button:hover {
+  background: rgba(0,240,255,0.14);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0,240,255,0.12);
+}
+button:active { transform: translateY(0); }
+
+@media (max-width: 900px) {
+  .game-container { flex-direction: column; align-items: center; }
+  .sidebar { width: 300px; flex-direction: row; flex-wrap: wrap; }
+  .sidebar.left { order: 2; }
+  .sidebar.right { order: 3; }
+  .board-wrap { order: 1; }
+}
