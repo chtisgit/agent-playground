@@ -1,0 +1,118 @@
+.single-player-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1rem;
+  position: relative;
+}
+
+.game-header {
+  text-align: center;
+  background: #f5f5f5;
+  padding: 1.5rem;
+  border-radius: 8px;
+  width: 100%;
+  max-width: 800px;
+}
+
+.game-header h2 {
+  color: #d32f2f;
+  margin-bottom: 1rem;
+}
+
+.game-stats {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+  font-weight: bold;
+  flex-wrap: wrap;
+}
+
+.stat-item {
+  color: #333;
+}
+
+.stat-divider {
+  color: #ccc;
+}
+
+.game-controls {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.game-over-panel {
+  background: #fff;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.game-over-panel h3 {
+  color: #333;
+  margin-bottom: 1rem;
+}
+
+.game-over-panel p {
+  font-size: 1.25rem;
+  font-weight: bold;
+  color: #d32f2f;
+  margin-bottom: 0.5rem;
+}
+
+.game-over-stats {
+  color: #666 !important;
+  font-size: 1rem !important;
+  font-weight: normal !important;
+}
+
+.difficulty-select {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  justify-content: center;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 300px;
+  font-size: 1.25rem;
+  color: #666;
+}
+
+.error-message {
+  background: #ffebee;
+  color: #c62828;
+  padding: 1rem;
+  border-radius: 4px;
+  border: 1px solid #ef9a9a;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .game-stats {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .stat-divider {
+    display: none;
+  }
+
+  .game-controls {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .game-controls .btn {
+    width: 100%;
+  }
+}
