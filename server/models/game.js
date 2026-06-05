@@ -1,6 +1,42 @@
 import db from './database.js';
 
+// Counter for game IDs (in memory storage for active games)
+let gameIdCounter = 1;
+const activeGames = new Map();
+
 export const GameModel = {
+  /**
+   * Create a new game
+   * @param {object} gameData 
+   * @returns {number} Game ID
+   */
+  createGame(gameData) {
+    const gameId = gameIdCounter++;
+    const game = {
+      id: gameId,
+      userId: gameData.userId,
+      gameType: gameData.gameType,
+      difficulty: gameData.difficulty,
+      tiles: gameData.tiles,
+      tilePositions: gameData.tilePositions,
+      score: 0,
+      moves: 0,
+      status: 'active',
+      createdAt: new Date()
+    };
+    activeGames.set(gameId, game);
+    return gameId;
+  },
+
+  /**
+   * Get an active game
+   * @param {number} gameId 
+   * @returns {object|null} Game object or null
+   */
+  getGame(gameId) {
+    return activeGames.get(gameId) || null;
+  },
+
   /**
    * Save a game state for later resume
    * @param {object} gameData 

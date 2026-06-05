@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { 
+  startSinglePlayer,
   saveGame, 
   loadGame, 
   resumeGame, 
@@ -18,6 +19,9 @@ const router = Router();
 
 // All routes require authentication
 router.use(authenticate);
+
+// Single-player game routes
+router.post('/single-player', startSinglePlayer);
 
 // Game state management
 router.post('/save', saveGame);
