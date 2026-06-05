@@ -1,0 +1,206 @@
+import db from './database.js';
+
+export const GameModel = {
+  /**
+   * Save a game state for later resume
+   * @param {object} gameData 
+   * @returns {number} Saved state ID
+   */
+  saveGameState(gameData) {
+    const stmt = db.prepare(`
+      INSERT INTO game_states 
+      (user_id, game_type, difficulty, tiles, tile_positions, score, moves, hints_used)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(
+      gameData.userId,
+      gameData.gameType,
+      gameData.difficulty,
+      JSON.stringify(gameData.tiles),
+      JSON.stringify(gameData.tilePositions),
+      gameData.score || 0,
+      gameData.moves || 0,
+      gameData.hintsUsed || 0
+    );
+    return result.lastInsertRowid;
+  },
+
+  /**
+   * Get a saved game state
+   * @param {number} stateId 
+   * @param {number} userId 
+   * @returns {object|null} Game state or null
+   */
+  getGameState(stateId, userId) {
+    const stmt = db.prepare(`
+      SELECT * FROM game_states 
+      WHERE id = ? AND user_id = ?
+    `);
+    const state = stmt.get(stateId, userId);
+    if (state) {
+      return {
+        ...state,
+        tiles: JSON.parse(state.tiles),
+        tilePositions: JSON.parse(state.tilePositions)
+      };
+    }
+    return null;
+  },
+
+  /**
+   * Get latest saved game state for a user
+   * @param {number} userId 
+   * @returns {object|null} Latest game state or null
+   */
+  getLatestGameState(userId) {
+    const stmt = db.prepare(`
+      SELECT * FROM game_states 
+      WHERE user_id = ?
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `);
+    const state = stmt.get(userId);
+    if (state) {
+      return {
+        ...state,
+        tiles: JSON.parse(state.tiles),
+        tilePositions: JSON.parse(state.tilePositions)
+      };
+    }
+    return null;
+  },
+
+  /**
+   * Update an existing game state
+   * @param {number} stateId 
+   * @param {object} gameData 
+   * @returns {boolean} Success status
+   */
+  updateGameState(stateId, gameData) {
+    const stmt = db.prepare(`
+      UPDATE game_states 
+      SET tiles = ?, tile_positions = ?, score = ?, moves = ?, hints_used = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+    const result = stmt.run(
+      JSON.stringify(gameData.tiles),
+      JSON.stringify(gameData.tilePositions),
+      gameData.score || 0,
+      gameData.moves || 0,
+      gameData.hintsUsed || 0,
+      stateId
+    );
+    return result.changes > 0;
+  },
+
+  /**
+   * Delete a saved game state
+   * @param {number} stateId 
+   * @param {number} userId 
+   * @returns {boolean} Success status
+   */
+  deleteGameState(stateId, userId) {
+    const stmt = db.prepare(`
+      DELETE FROM game_states 
+      WHERE id = ? AND user_id = ?
+    `);
+    const result = stmt.run(stateId, userId);
+    return result.changes > 0;
+  },
+
+  /**
+   * Record a completed game
+   * @param {object} gameData 
+   * @returns {number} Game ID
+   */
+  recordGame(gameData) {
+    const stmt = db.prepare(`
+      INSERT INTO games (user_id, game_type, difficulty, score, duration, result)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(
+      gameData.userId,
+      gameData.gameType,
+      gameData.difficulty,
+      gameData.score,
+      gameData.duration,
+      gameData.result
+    );
+    return result.lastInsertRowid;
+  },
+
+  /**
+   * Get user's game history
+   * @param {number} userId 
+   * @param {number} limit 
+   * @returns {array} List of games
+   */
+  getGameHistory(userId, limit = 20) {
+    const stmt = db.prepare(`
+      SELECT g.*, u.username
+      FROM games g
+      JOIN users u ON g.user_id = u.id
+      WHERE g.user_id = ?
+      ORDER BY g.created_at DESC
+      LIMIT ?
+    `);
+    return stmt.all(userId, limit);
+  },
+
+  /**
+   * Get leaderboard
+   * @param {string} gameType 
+   * @param {string} difficulty 
+   * @param {number} limit 
+   * @returns {array} Leaderboard entries
+   */
+  getLeaderboard(gameType = null, difficulty = null, limit = 10) {
+    let query = `
+      SELECT l.*, u.username
+      FROM leaderboard l
+      JOIN users u ON l.user_id = u.id
+    `;
+    const params = [];
+    
+    if (gameType || difficulty) {
+      query += ' WHERE ';
+      if (gameType) {
+        query += ' l.game_type = ?';
+        params.push(gameType);
+      }
+      if (difficulty) {
+        query += params.length ? ' AND ' : '';
+        query += ' l.difficulty = ?';
+        params.push(difficulty);
+      }
+    }
+    
+    query += ' ORDER BY l.score DESC LIMIT ?';
+    params.push(limit);
+    
+    const stmt = db.prepare(query);
+    return stmt.all(...params);
+  },
+
+  /**
+   * Add a leaderboard entry
+   * @param {object} entryData 
+   * @returns {number} Entry ID
+   */
+  addLeaderboardEntry(entryData) {
+    const stmt = db.prepare(`
+      INSERT INTO leaderboard (user_id, score, game_type, difficulty)
+      VALUES (?, ?, ?, ?)
+    `);
+    const result = stmt.run(
+      entryData.userId,
+      entryData.score,
+      entryData.gameType,
+      entryData.difficulty
+    );
+    return result.lastInsertRowid;
+  }
+};
+
+export default GameModel;
