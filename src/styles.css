@@ -126,3 +126,9 @@ html, body {
     font-size: 0.9rem;
   }
 }
+
+/* Additional button styles for auth */
+.btn-sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}

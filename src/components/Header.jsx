@@ -1,8 +1,17 @@
-import { Link, useLocation } from 'react-router-dom';
+import React from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import './Header.css';
 
-function Header() {
+function Header({ isAuthenticated, setIsAuthenticated }) {
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('user');
+    setIsAuthenticated(false);
+    navigate('/');
+  };
 
   return (
     <header className="header">
@@ -38,6 +47,18 @@ function Header() {
             Profile
           </Link>
         </nav>
+
+        <div className="auth-section">
+          {isAuthenticated ? (
+            <button onClick={handleLogout} className="btn btn-outline btn-sm">
+              Logout
+            </button>
+          ) : (
+            <Link to="/login" className="btn btn-primary btn-sm">
+              Login
+            </Link>
+          )}
+        </div>
       </div>
     </header>
   );
