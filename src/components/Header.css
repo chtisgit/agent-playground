@@ -55,6 +55,23 @@
   color: #fff;
 }
 
+.auth-section {
+  display: flex;
+  align-items: center;
+}
+
+.auth-section .btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-section .btn-sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
 @media (max-width: 768px) {
   .header-content {
     flex-direction: column;
@@ -63,6 +80,11 @@
 
   .nav {
     flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .auth-section {
+    width: 100%;
     justify-content: center;
   }
 }
