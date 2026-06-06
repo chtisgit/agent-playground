@@ -17,43 +17,35 @@ import { MahjongService } from '../services/mahjongService.js';
 
 const router = Router();
 
-// Guest user support for testing - allows unauthenticated access to single-player
-const guestUser = (req, res, next) => {
-  if (!req.user) {
-    req.user = { id: 999999, username: 'guest' };
-  }
-  next();
-};
+// All routes require authentication
+router.use(authenticate);
 
-// Single player game endpoint - PUBLIC (no auth required for testing)
-router.post('/single-player', guestUser, startSinglePlayer);
+// Single player game endpoint (matches frontend expectation)
+router.post('/single-player', startSinglePlayer);
 
-// All other game-specific endpoints - PUBLIC (guest user for testing)
-// Note: In production, these should use authenticate middleware
+// Game state management (existing flat routes)
+router.post('/save', saveGame);
+router.get('/load/:stateId', loadGame);
+router.get('/resume', resumeGame);
+router.delete('/delete/:stateId', deleteGame);
 
-// Game state management (flat routes - authenticated)
-router.post('/save', authenticate, saveGame);
-router.get('/load/:stateId', authenticate, loadGame);
-router.get('/resume', authenticate, resumeGame);
-router.delete('/delete/:stateId', authenticate, deleteGame);
+// Game completion and stats (existing flat routes)
+router.post('/complete', completeGame);
+router.get('/history', getHistory);
+router.get('/leaderboard', getLeaderboard);
 
-// Game completion and stats (authenticated)
-router.post('/complete', authenticate, completeGame);
-router.get('/history', authenticate, getHistory);
-router.get('/leaderboard', authenticate, getLeaderboard);
-
-// Game logic
+// Game logic (existing flat routes)
 router.post('/generate', generateGame);
 router.post('/validate', validateMatch);
 
-// === Game-specific endpoints with gameId parameter - PUBLIC ===
-// Using guest user for testing single-player without login
+// === NEW: Game-specific endpoints with gameId parameter ===
+// These match the frontend's expected REST API pattern
 
 /**
  * Get game state by ID
  * GET /api/games/:gameId
  */
-router.get('/:gameId', guestUser, (req, res) => {
+router.get('/:gameId', (req, res) => {
   try {
     const { gameId } = req.params;
     const game = GameModel.getGameById(gameId, req.user.id);
@@ -73,12 +65,12 @@ router.get('/:gameId', guestUser, (req, res) => {
  * Make a move (select a tile or match tiles)
  * POST /api/games/:gameId/move
  */
-router.post('/:gameId/move', guestUser, (req, res) => {
+router.post('/:gameId/move', (req, res) => {
   try {
     const { gameId } = req.params;
-    const { tileIndex } = req.body;
+    const { tileIndex, selectedTileIndex } = req.body;
     
-    // Get game from server-side state
+    // Get game from server-side state (NOT from client)
     const game = GameModel.getGameById(gameId, req.user.id);
     if (!game) {
       return res.status(404).json({ error: 'Game not found' });
@@ -133,16 +125,19 @@ router.post('/:gameId/move', guestUser, (req, res) => {
 /**
  * Get a hint for the current game
  * GET /api/games/:gameId/hint
+ * Uses server-side game state, not client input
  */
-router.get('/:gameId/hint', guestUser, (req, res) => {
+router.get('/:gameId/hint', (req, res) => {
   try {
     const { gameId } = req.params;
     
+    // Get game from server-side state (NOT from client)
     const game = GameModel.getGameById(gameId, req.user.id);
     if (!game) {
       return res.status(404).json({ error: 'Game not found' });
     }
     
+    // Use server-stored tiles and positions
     const hint = MahjongService.getHint(game.tiles, game.tilePositions || []);
     
     res.json({ hint });
@@ -156,20 +151,23 @@ router.get('/:gameId/hint', guestUser, (req, res) => {
  * Shuffle the board
  * POST /api/games/:gameId/shuffle
  */
-router.post('/:gameId/shuffle', guestUser, (req, res) => {
+router.post('/:gameId/shuffle', (req, res) => {
   try {
     const { gameId } = req.params;
     
+    // Get game from server-side state
     const game = GameModel.getGameById(gameId, req.user.id);
     if (!game) {
       return res.status(404).json({ error: 'Game not found' });
     }
     
+    // Generate new board server-side
     const { tiles, positions } = MahjongService.generateBoard(game.difficulty);
     game.tiles = tiles;
     game.tilePositions = positions;
     game.shuffles = (game.shuffles || 0) + 1;
     
+    // Update server-side game state
     GameModel.updateGame(gameId, game);
     
     res.json({ 
@@ -186,39 +184,46 @@ router.post('/:gameId/shuffle', guestUser, (req, res) => {
 /**
  * End the game
  * POST /api/games/:gameId/end
+ * Server-side score calculation
  */
-router.post('/:gameId/end', guestUser, (req, res) => {
+router.post('/:gameId/end', (req, res) => {
   try {
     const { gameId } = req.params;
     
+    // Get game from server-side state
     const game = GameModel.getGameById(gameId, req.user.id);
     if (!game) {
       return res.status(404).json({ error: 'Game not found' });
     }
     
+    // Mark game as ended
     game.ended = true;
     game.status = 'completed';
     game.endedAt = new Date();
     
+    // Calculate final score server-side (NOT using client-submitted score)
+    // Base score from matches
     const baseScore = (game.matches || 0) * 10;
+    // Bonus for remaining tiles
     const remainingTiles = game.tiles.filter(t => !t.removed).length;
     const completionBonus = remainingTiles === 0 ? 100 : 0;
+    // Penalty for shuffles used
     const shufflePenalty = (game.shuffles || 0) * 5;
+    // Time bonus could be calculated here if we track start time
     
     game.score = Math.max(0, baseScore + completionBonus - shufflePenalty);
     
-    // Skip recording for guest users
-    if (req.user.id !== 999999) {
-      GameModel.recordGame({
-        userId: req.user.id,
-        gameType: game.gameType || 'singlePlayer',
-        difficulty: game.difficulty,
-        score: game.score,
-        duration: game.duration || 0,
-        result: remainingTiles === 0 ? 'win' : 'abandoned'
-      });
-    }
+    // Record completed game
+    GameModel.recordGame({
+      userId: req.user.id,
+      gameType: game.gameType || 'singlePlayer',
+      difficulty: game.difficulty,
+      score: game.score,
+      duration: game.duration || 0,
+      result: remainingTiles === 0 ? 'win' : 'abandoned'
+    });
     
+    // Update server-side game state
     GameModel.updateGame(gameId, game);
     
     res.json({ 
