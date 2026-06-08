@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Router } from 'express';
 import { 
   saveGame, 
@@ -18,12 +19,19 @@ import { MahjongService } from '../services/mahjongService.js';
 const router = Router();
 
 // Guest user middleware - allows single-player without login
-// Assigns a guest user ID for unauthenticated requests
+// Assigns a consistent guest user ID for unauthenticated requests
 const guestUser = (req, res, next) => {
   if (!req.user) {
-    // Generate a guest user ID based on session or IP
-    const guestId = 1000000 + Math.floor(Math.random() * 900000);
-    req.user = { id: guestId, username: 'guest', isGuest: true };
+    // Use session-based or IP-based consistent guest ID
+    let guestId = req.headers['x-guest-id'];
+    if (!guestId) {
+      const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      // Deterministic hash of ip + user-agent for consistency
+      const hash = createHash('md5').update(ip + userAgent).digest('hex');
+      guestId = '1000000' + parseInt(hash.substring(0, 8), 16);
+    }
+    req.user = { id: parseInt(guestId) || 1000001, username: 'guest', isGuest: true };
   }
   next();
 };
@@ -95,7 +103,7 @@ router.post('/:gameId/move', guestUser, (req, res) => {
     
     // Check for match if two tiles are selected
     const selectedTiles = game.tiles.filter(t => t.selected && !t.removed);
-    let matchMade = false;
+    let matched = false;
     if (selectedTiles.length === 2) {
       const [tile1, tile2] = selectedTiles;
       if (tile1.suit === tile2.suit && tile1.value === tile2.value) {
@@ -104,7 +112,7 @@ router.post('/:gameId/move', guestUser, (req, res) => {
         tile1.selected = false;
         tile2.selected = false;
         game.matches = (game.matches || 0) + 1;
-        matchMade = true;
+        matched = true;
         
         // Calculate score server-side
         game.score = (game.score || 0) + 10;
@@ -122,8 +130,8 @@ router.post('/:gameId/move', guestUser, (req, res) => {
     res.json({ 
       success: true, 
       game,
-      matchMade,
-      message: matchMade ? 'Match made!' : 'Move recorded'
+      matched,
+      message: matched ? 'Match made!' : 'Move recorded'
     });
   } catch (error) {
     console.error('Make move error:', error);
@@ -144,9 +152,15 @@ router.get('/:gameId/hint', guestUser, (req, res) => {
       return res.status(404).json({ error: 'Game not found' });
     }
     
-    const hint = MahjongService.getHint(game.tiles, game.tilePositions || []);
+    const hintResult = MahjongService.getHint(game.tiles, game.tilePositions || []);
     
-    res.json({ hint });
+    // Convert tile IDs to indices for frontend
+    let tileIndex = null;
+    if (hintResult && hintResult.tile1Id && game.tiles) {
+      tileIndex = game.tiles.findIndex(t => t.id === hintResult.tile1Id || t.tileId === hintResult.tile1Id);
+    }
+    
+    res.json({ hint: hintResult, tileIndex });
   } catch (error) {
     console.error('Get hint error:', error);
     res.status(500).json({ error: 'Failed to get hint' });
@@ -167,7 +181,17 @@ router.post('/:gameId/shuffle', guestUser, (req, res) => {
     }
     
     const { tiles, positions } = MahjongService.generateBoard(game.difficulty);
-    game.tiles = tiles;
+    
+    // Re-format tiles with game state properties
+    const formattedTiles = tiles.map((tile, index) => ({
+      ...tile,
+      id: tile.id || `tile_${index}`,
+      index,
+      removed: false,
+      selected: false
+    }));
+    
+    game.tiles = formattedTiles;
     game.tilePositions = positions;
     game.shuffles = (game.shuffles || 0) + 1;
     
