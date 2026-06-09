@@ -18,7 +18,7 @@ const SEASON_TILES = ['season_1', 'season_2', 'season_3', 'season_4'];
 /**
  * Check if two tiles match
  */
-function tilesMatch(tile1Id, tile2Id) {
+export function tilesMatch(tile1Id, tile2Id) {
   if (tile1Id === tile2Id) return true;
   if (tile1Id.startsWith('flower_') && tile2Id.startsWith('flower_')) return true;
   if (tile1Id.startsWith('season_') && tile2Id.startsWith('season_')) return true;
@@ -31,7 +31,7 @@ function tilesMatch(tile1Id, tile2Id) {
  * 1. Another tile exists on top of it (same row/col, higher layer), OR
  * 2. It has a tile on both its left AND right (same row/layer, adjacent cols)
  */
-function isTileBlocked(tileId, positions) {
+export function isTileBlocked(tileId, positions) {
   const tile = positions[tileId];
   if (!tile) return true;
   
@@ -68,7 +68,7 @@ function isTileBlocked(tileId, positions) {
  * Build a coordinate grid for O(1) tile position lookups
  * Returns a Map keyed by "row,col,layer" -> tileId
  */
-function buildPositionGrid(positions) {
+export function buildPositionGrid(positions) {
   const grid = new Map();
   for (const [tileId, pos] of Object.entries(positions)) {
     grid.set(`${pos.row},${pos.col},${pos.layer}`, tileId);
@@ -79,7 +79,7 @@ function buildPositionGrid(positions) {
 /**
  * Check if a tile is blocked using a position grid (O(1) lookups)
  */
-function isTileBlockedFast(tileId, positions, grid) {
+export function isTileBlockedFast(tileId, positions, grid) {
   const tile = positions[tileId];
   if (!tile) return true;
   
@@ -105,7 +105,7 @@ function isTileBlockedFast(tileId, positions, grid) {
 /**
  * Get selectable (unblocked) tiles
  */
-function getSelectableTiles(tiles, positions) {
+export function getSelectableTiles(tiles, positions) {
   const grid = buildPositionGrid(positions);
   return tiles.filter(tileId => !isTileBlockedFast(tileId, positions, grid));
 }
