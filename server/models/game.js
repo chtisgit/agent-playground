@@ -2,6 +2,7 @@ import db from './database.js';
 
 // In-memory storage for active games
 const activeGames = new Map();
+const gameTokens = new Map(); // gameToken -> gameId mapping for guest access
 let gameIdCounter = 1;
 
 export const GameModel = {
@@ -25,9 +26,16 @@ export const GameModel = {
       moves: 0,
       matches: 0,
       status: 'active',
-      createdAt: new Date()
+      createdAt: new Date(),
+      gameToken: gameData.gameToken || null
     };
     activeGames.set(gameId, game);
+    
+    // Register game token for guest access
+    if (gameData.gameToken) {
+      gameTokens.set(gameData.gameToken, gameId);
+    }
+    
     return gameId;
   },
 
@@ -40,6 +48,21 @@ export const GameModel = {
   getGameById(gameId, userId) {
     const game = activeGames.get(parseInt(gameId));
     if (game && game.userId === userId) {
+      return game;
+    }
+    return null;
+  },
+
+  /**
+   * Get an active game by game token (for guest access)
+   * @param {number} gameId 
+   * @param {string} token - crypto.randomUUID() game token
+   * @returns {object|null} Game object or null
+   */
+  getGameByToken(gameId, token) {
+    const id = parseInt(gameId);
+    const game = activeGames.get(id);
+    if (game && game.gameToken === token) {
       return game;
     }
     return null;
@@ -67,6 +90,10 @@ export const GameModel = {
    * @returns {boolean} Success status
    */
   deleteGame(gameId) {
+    const game = activeGames.get(parseInt(gameId));
+    if (game && game.gameToken) {
+      gameTokens.delete(game.gameToken);
+    }
     return activeGames.delete(parseInt(gameId));
   },
 

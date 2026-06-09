@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { optionalAuth } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -6,17 +7,49 @@ const router = Router();
 const rooms = new Map();
 let roomIdCounter = 1;
 
+// Stale room cleanup - remove rooms older than 30 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, room] of rooms.entries()) {
+    if (now - room.createdAt.getTime() > 30 * 60 * 1000) {
+      rooms.delete(id);
+    }
+  }
+}, 5 * 60 * 1000); // Run every 5 minutes
+
+/**
+ * Sanitize a string for display - prevent XSS
+ */
+function sanitizeInput(str) {
+  if (typeof str !== 'string') return '';
+  // Strip HTML tags
+  let cleaned = str.replace(/<[^>]*>/g, '');
+  // Entity encode
+  cleaned = cleaned
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+  // Limit length
+  return cleaned.slice(0, 30);
+}
+
 // Helper to create a room object
-function createRoom(hostName, roomName) {
+function createRoom(hostId, hostName, roomName) {
   const id = roomIdCounter++;
   return {
     id,
-    name: roomName || `Room ${id}`,
-    host: hostName,
-    players: [hostName],
+    name: sanitizeInput(roomName) || `Room ${id}`,
+    hostId,
+    host: sanitizeInput(hostName),
+    players: [{ id: hostId, name: sanitizeInput(hostName) }],
     createdAt: new Date(),
   };
 }
+
+// All lobby routes use optionalAuth
+router.use(optionalAuth);
 
 /**
  * List all available rooms
@@ -28,7 +61,7 @@ router.get('/rooms', (req, res) => {
       id: r.id,
       name: r.name,
       host: r.host,
-      players: r.players,
+      playerCount: r.players.length,
     }));
     res.json({ rooms: roomList });
   } catch (error) {
@@ -47,7 +80,13 @@ router.post('/rooms', (req, res) => {
     if (!playerName || !playerName.trim()) {
       return res.status(400).json({ error: 'playerName is required' });
     }
-    const room = createRoom(playerName.trim(), req.body.roomName);
+    
+    const hostId = req.user ? req.user.id : null;
+    if (!hostId) {
+      return res.status(401).json({ error: 'Authentication required to create a room' });
+    }
+    
+    const room = createRoom(hostId, playerName.trim(), req.body.roomName);
     rooms.set(room.id, room);
     res.status(201).json(room);
   } catch (error) {
@@ -87,14 +126,21 @@ router.post('/rooms/:roomId/join', (req, res) => {
     if (!playerName || !playerName.trim()) {
       return res.status(400).json({ error: 'playerName is required' });
     }
-    if (room.players.includes(playerName.trim())) {
-      // Already in room, just return room
+    
+    const sanitizedName = sanitizeInput(playerName.trim());
+    
+    // Check if player already in room
+    const existingPlayer = room.players.find(p => p.name === sanitizedName);
+    if (existingPlayer) {
       return res.json(room);
     }
+    
     if (room.players.length >= 4) {
       return res.status(403).json({ error: 'Room is full' });
     }
-    room.players.push(playerName.trim());
+    
+    const playerId = req.user ? req.user.id : null;
+    room.players.push({ id: playerId, name: sanitizedName });
     rooms.set(room.id, room);
     res.json(room);
   } catch (error) {
@@ -115,15 +161,20 @@ router.post('/rooms/:roomId/leave', (req, res) => {
     }
     const { playerName } = req.body;
     if (playerName) {
-      room.players = room.players.filter(p => p !== playerName.trim());
+      const sanitizedName = sanitizeInput(playerName.trim());
+      room.players = room.players.filter(p => p.name !== sanitizedName);
+      
       if (room.players.length === 0) {
         rooms.delete(room.id);
         return res.json({ message: 'Room deleted', roomId: req.params.roomId });
       }
+      
       // Reassign host if host left
-      if (room.host === playerName.trim() && room.players.length > 0) {
-        room.host = room.players[0];
+      if (room.host === sanitizedName && room.players.length > 0) {
+        room.host = room.players[0].name;
+        room.hostId = room.players[0].id;
       }
+      
       rooms.set(room.id, room);
     }
     res.json(room);

@@ -2,7 +2,12 @@ import { api } from './api';
 
 export const gameService = {
   async startSinglePlayer(difficulty = 'medium') {
-    return api.post('/games/single-player', { difficulty });
+    const response = await api.post('/games/single-player', { difficulty });
+    // Store game token for guest session persistence
+    if (response.gameToken) {
+      sessionStorage.setItem('gameToken', response.gameToken);
+    }
+    return response;
   },
 
   async getGameState(gameId) {
@@ -22,6 +27,29 @@ export const gameService = {
   },
 
   async endGame(gameId, score) {
-    return api.post(`/games/${gameId}/end`, { score });
+    const response = await api.post(`/games/${gameId}/end`, { score });
+    // Clear game token when game ends
+    sessionStorage.removeItem('gameToken');
+    return response;
+  },
+
+  // Game state persistence - save current game progress
+  async saveGame(gameData) {
+    return api.post('/games/save', gameData);
+  },
+
+  // Resume the latest saved game
+  async resumeGame() {
+    return api.get('/games/resume');
+  },
+
+  // Load a specific saved game by ID
+  async loadGame(stateId) {
+    return api.get(`/games/load/${stateId}`);
+  },
+
+  // Delete a saved game
+  async deleteSavedGame(stateId) {
+    return api.delete(`/games/delete/${stateId}`);
   },
 };
