@@ -5,6 +5,7 @@ import { initializeDatabase } from './models/database.js';
 import gameRoutes from './routes/game.js';
 import gamesRoutes from './routes/games.js';
 import authRoutes from './routes/auth.js';
+import lobbyRoutes from './routes/lobby.js';
 
 // CORS allowed origins - restrict based on environment
 const getAllowedOrigins = () => {
@@ -81,6 +82,7 @@ app.get('/health', (req, res) => {
 app.use('/api/game', gameRoutes);
 app.use('/api/games', gamesRoutes);  // New plural route for games (includes /single-player)
 app.use('/api/auth', authRoutes);
+app.use('/api/lobby', lobbyRoutes);
 
 // Socket.IO for real-time multiplayer
 io.on('connection', (socket) => {

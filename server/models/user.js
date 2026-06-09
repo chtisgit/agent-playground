@@ -91,20 +91,17 @@ export const UserModel = {
     `);
     
     const stats = gamesStmt.get(userId);
-    
-    const earlyStmt = db.prepare(`
-      SELECT COUNT(*) as total_games, MAX(score) as high_score
-      FROM leaderboard
-      WHERE user_id = ?
-    `);
+    const totalGames = stats.total_games || 0;
+    const wins = stats.wins || 0;
     
     return {
-      ...stats,
-      total_games: stats.total_games || 0,
-      wins: stats.wins || 0,
+      total_games: totalGames,
+      totalGames: totalGames,
+      wins: wins,
       losses: stats.losses || 0,
       avg_score: Math.round(stats.avg_score || 0),
-      high_score: stats.high_score || 0
+      high_score: stats.high_score || 0,
+      winRate: totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0
     };
   }
 };

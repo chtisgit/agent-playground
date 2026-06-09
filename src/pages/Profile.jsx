@@ -39,15 +39,19 @@ function Profile() {
       const [profileData, statsData, historyData] = await Promise.all([
         userService.getProfile(),
         userService.getStats(),
-        userService.getHistory(1, 10),
+        userService.getHistory(20),
       ]);
-      setProfile(profileData);
-      setStats(statsData);
+      // Backend returns { user: {...} }
+      setProfile(profileData.user || profileData);
+      // Backend returns { stats: {...} }
+      const rawStats = statsData.stats || statsData;
+      setStats(rawStats);
+      // Backend returns { games: [...] }
       setHistory(historyData.games || []);
       setFormData({
-        username: profileData.username || '',
-        email: profileData.email || '',
-        avatar: profileData.avatar || '',
+        username: (profileData.user || profileData).username || '',
+        email: (profileData.user || profileData).email || '',
+        avatar: (profileData.user || profileData).avatar || '',
       });
     } catch (err) {
       setError('Failed to load profile data');
@@ -86,8 +90,8 @@ function Profile() {
   };
 
   // Sanitize avatar URL - only use it if it's a valid image URL
-  const avatarSrc = isValidImageUrl(profile?.avatar) 
-    ? profile.avatar 
+  const avatarSrc = isValidImageUrl(profile?.avatar)
+    ? profile.avatar
     : '/default-avatar.png';
 
   if (loading && !profile) {
@@ -163,21 +167,21 @@ function Profile() {
           <h3>Statistics</h3>
           <div className="stats-grid">
             <div className="stat-card">
-              <span className="stat-value">{stats.totalGames || 0}</span>
+              <span className="stat-value">{stats.total_games ?? stats.totalGames ?? 0}</span>
               <span className="stat-label">Total Games</span>
             </div>
             <div className="stat-card">
-              <span className="stat-value">{stats.wins || 0}</span>
+              <span className="stat-value">{stats.wins ?? 0}</span>
               <span className="stat-label">Wins</span>
             </div>
             <div className="stat-card">
               <span className="stat-value">
-                {stats.winRate ? `${Math.round(stats.winRate)}%` : '0%'}
+                {stats.winRate ? `${Math.round(stats.winRate)}%` : `${(stats.wins && stats.total_games ? Math.round((stats.wins / stats.total_games) * 100) : 0)}%`}
               </span>
               <span className="stat-label">Win Rate</span>
             </div>
             <div className="stat-card">
-              <span className="stat-value">{stats.highScore || 0}</span>
+              <span className="stat-value">{stats.high_score ?? stats.highScore ?? 0}</span>
               <span className="stat-label">High Score</span>
             </div>
           </div>
@@ -201,8 +205,8 @@ function Profile() {
             <tbody>
               {history.map((game, index) => (
                 <tr key={index}>
-                  <td>{new Date(game.date).toLocaleDateString()}</td>
-                  <td>{game.mode}</td>
+                  <td>{new Date(game.created_at || game.date).toLocaleDateString()}</td>
+                  <td>{game.game_type || game.mode}</td>
                   <td>{game.score}</td>
                   <td className={game.result === 'win' ? 'win' : 'loss'}>
                     {game.result}
