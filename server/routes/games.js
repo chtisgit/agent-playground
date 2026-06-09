@@ -55,7 +55,7 @@ router.post('/single-player', optionalAuth, (req, res) => {
   try {
     const { difficulty = 'medium' } = req.body;
     
-    // For guest users, generate a unique game token
+    // For guest users, generate a unique game token (server-side, unforgeable)
     const isGuest = !req.user;
     const gameToken = isGuest ? randomUUID() : null;
     
@@ -100,7 +100,7 @@ router.post('/single-player', optionalAuth, (req, res) => {
       status: 'active'
     };
     
-    // Include gameToken for guest users
+    // Include gameToken for guest users (client stores in sessionStorage)
     if (gameToken) {
       response.gameToken = gameToken;
     }
@@ -154,6 +154,10 @@ router.get('/:gameId', optionalAuth, (req, res) => {
 /**
  * Make a move (select a tile or match tiles)
  * POST /api/games/:gameId/move
+ * 
+ * Validates that:
+ * 1. The tile exists and is not removed
+ * 2. When matching two tiles, both are unblocked and actually match (uses MahjongService)
  */
 router.post('/:gameId/move', optionalAuth, (req, res) => {
   try {
@@ -166,33 +170,84 @@ router.post('/:gameId/move', optionalAuth, (req, res) => {
       return res.status(404).json({ error: 'Game not found' });
     }
     
-    // Update game state server-side
-    if (tileIndex !== undefined && tileIndex >= 0 && tileIndex < game.tiles.length) {
-      const tile = game.tiles[tileIndex];
-      if (!tile.removed) {
-        tile.selected = !tile.selected;
-      }
+    // Validate tileIndex
+    if (tileIndex === undefined || tileIndex < 0 || tileIndex >= game.tiles.length) {
+      return res.status(400).json({ error: 'Invalid tile index' });
     }
     
-    // Check for match if two tiles are selected
-    const selectedTiles = game.tiles.filter(t => t.selected && !t.removed);
+    const clickedTile = game.tiles[tileIndex];
+    if (clickedTile.removed) {
+      return res.status(400).json({ error: 'Tile already removed' });
+    }
+    
+    // Check which tiles are currently selected (not removed, but selected)
+    const currentlySelected = game.tiles
+      .map((t, i) => ({ tile: t, index: i }))
+      .filter(t => t.tile.selected && !t.tile.removed);
+    
     let matched = false;
-    if (selectedTiles.length === 2) {
-      const [tile1, tile2] = selectedTiles;
-      if (tile1.suit === tile2.suit && tile1.value === tile2.value) {
-        tile1.removed = true;
-        tile2.removed = true;
-        tile1.selected = false;
-        tile2.selected = false;
-        game.matches = (game.matches || 0) + 1;
-        matched = true;
-        
-        // Calculate score server-side
-        game.score = (game.score || 0) + 10;
+    
+    if (currentlySelected.length === 0) {
+      // First tile selection - just select it
+      clickedTile.selected = true;
+    } else if (currentlySelected.length === 1) {
+      // Second tile selection - attempt match
+      const firstTile = currentlySelected[0];
+      
+      if (firstTile.index === tileIndex) {
+        // Clicking same tile - deselect
+        clickedTile.selected = false;
       } else {
-        tile1.selected = false;
-        tile2.selected = false;
+        // Two different tiles selected - validate match
+        // Build tiles and positions maps for MahjongService
+        const tilesMap = {};
+        const positionsMap = {};
+        game.tiles.forEach((t, i) => {
+          if (!t.removed) {
+            const tileId = t.id || `tile_${i}`;
+            tilesMap[tileId] = t.suit ? `${t.suit}_${t.value}` : t.type || tileId;
+            if (game.tilePositions && game.tilePositions[tileId]) {
+              positionsMap[tileId] = game.tilePositions[tileId];
+            }
+          }
+        });
+        
+        const firstTileId = firstTile.tile.id || `tile_${firstTile.index}`;
+        const secondTileId = clickedTile.id || `tile_${tileIndex}`;
+        
+        // Use MahjongService to validate the match (checks blocking + matching rules)
+        const isValid = MahjongService.validateMatch(tilesMap, positionsMap, firstTileId, secondTileId);
+        
+        if (isValid) {
+          // Valid match - remove both tiles
+          firstTile.tile.removed = true;
+          firstTile.tile.selected = false;
+          clickedTile.removed = true;
+          clickedTile.selected = false;
+          game.matches = (game.matches || 0) + 1;
+          matched = true;
+          
+          // Calculate score based on difficulty
+          const baseScores = { easy: 10, medium: 20, hard: 30 };
+          const base = baseScores[game.difficulty] || 20;
+          game.score = (game.score || 0) + base;
+          
+          // Check for win condition - all tiles removed
+          const remainingTiles = game.tiles.filter(t => !t.removed).length;
+          if (remainingTiles === 0) {
+            game.ended = true;
+            game.status = 'completed';
+            game.endedAt = new Date();
+          }
+        } else {
+          // Invalid match - deselect both tiles
+          firstTile.tile.selected = false;
+          clickedTile.selected = false;
+        }
       }
+    } else {
+      // Should not happen, but reset all selections
+      game.tiles.forEach(t => { if (t.selected) t.selected = false; });
     }
     
     game.moves = (game.moves || 0) + 1;
@@ -258,9 +313,9 @@ router.post('/:gameId/shuffle', optionalAuth, (req, res) => {
     const { tiles, positions } = MahjongService.generateBoard(game.difficulty);
     
     // Re-format tiles with game state properties
-    const formattedTiles = tiles.map((tile, index) => ({
-      ...tile,
-      id: tile.id || `tile_${index}`,
+    const formattedTiles = Object.entries(tiles).map(([tileId, tileType], index) => ({
+      id: tileId,
+      type: tileType,
       index,
       removed: false,
       selected: false
@@ -309,7 +364,7 @@ router.post('/:gameId/end', optionalAuth, (req, res) => {
     game.score = Math.max(0, baseScore + completionBonus - shufflePenalty);
     
     // Only record for authenticated (non-guest) users
-    if (access.type === 'user') {
+    if (access && access.type === 'user') {
       GameModel.recordGame({
         userId: access.id,
         gameType: game.gameType || 'singlePlayer',

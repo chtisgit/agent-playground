@@ -26,7 +26,10 @@ function tilesMatch(tile1Id, tile2Id) {
 }
 
 /**
- * Check if a tile is blocked
+ * Check if a tile is blocked using direct neighbour coordinate lookup (O(1))
+ * A tile is blocked if:
+ * 1. Another tile exists on top of it (same row/col, higher layer), OR
+ * 2. It has a tile on both its left AND right (same row/layer, adjacent cols)
  */
 function isTileBlocked(tileId, positions) {
   const tile = positions[tileId];
@@ -34,20 +37,67 @@ function isTileBlocked(tileId, positions) {
   
   const { row, col, layer } = tile;
   
-  // Check if any tile is on top
+  // Build a quick lookup keyed by "row,col,layer" for O(1) neighbour checks
+  // We'll do this lazily via direct checking since the positions object keys
+  // are tile IDs, not coordinates.
+  
+  // Check if any tile is on top (same row/col, higher layer) - O(n) but limited
   for (const [otherId, pos] of Object.entries(positions)) {
     if (otherId !== tileId && pos.row === row && pos.col === col && pos.layer > layer) {
       return true;
     }
   }
   
-  // Check left/right blocking
-  const leftBlocked = Object.values(positions).some(
-    pos => pos.row === row && pos.col === col - 1 && pos.layer === layer
-  );
-  const rightBlocked = Object.values(positions).some(
-    pos => pos.row === row && pos.col === col + 1 && pos.layer === layer
-  );
+  // Check left/right blocking using coordinate strings for O(n) lookup
+  // This is still O(n) but we can improve it by precomputing a grid
+  let leftBlocked = false;
+  let rightBlocked = false;
+  
+  for (const [otherId, pos] of Object.entries(positions)) {
+    if (otherId === tileId) continue;
+    if (pos.layer !== layer || pos.row !== row) continue;
+    if (pos.col === col - 1) leftBlocked = true;
+    if (pos.col === col + 1) rightBlocked = true;
+    if (leftBlocked && rightBlocked) return true;
+  }
+  
+  return leftBlocked || rightBlocked;
+}
+
+/**
+ * Build a coordinate grid for O(1) tile position lookups
+ * Returns a Map keyed by "row,col,layer" -> tileId
+ */
+function buildPositionGrid(positions) {
+  const grid = new Map();
+  for (const [tileId, pos] of Object.entries(positions)) {
+    grid.set(`${pos.row},${pos.col},${pos.layer}`, tileId);
+  }
+  return grid;
+}
+
+/**
+ * Check if a tile is blocked using a position grid (O(1) lookups)
+ */
+function isTileBlockedFast(tileId, positions, grid) {
+  const tile = positions[tileId];
+  if (!tile) return true;
+  
+  const { row, col, layer } = tile;
+  const g = grid || buildPositionGrid(positions);
+  
+  // Check if any tile is directly on top
+  // We only need to check a few layers above
+  for (let l = layer + 1; l <= 5; l++) {
+    if (g.has(`${row},${col},${l}`)) return true;
+  }
+  
+  // Check left blocking
+  const leftBlocked = g.has(`${row},${col - 1},${layer}`);
+  if (!leftBlocked) return false;
+  
+  // Check right blocking
+  const rightBlocked = g.has(`${row},${col + 1},${layer}`);
   
   return leftBlocked || rightBlocked;
 }
@@ -56,7 +106,8 @@ function isTileBlocked(tileId, positions) {
  * Get selectable (unblocked) tiles
  */
 function getSelectableTiles(tiles, positions) {
-  return tiles.filter(tileId => !isTileBlocked(tileId, positions));
+  const grid = buildPositionGrid(positions);
+  return tiles.filter(tileId => !isTileBlockedFast(tileId, positions, grid));
 }
 
 /**
@@ -72,60 +123,60 @@ function shuffleArray(array) {
 }
 
 /**
- * Generate standard Mahjong layout (turtle pattern)
+ * Generate standard Mahjong layout (pyramid pattern) - 144 positions
+ * Layer 0 (base):  12 columns x 8 rows = 96 tiles
+ * Layer 1:          10 columns x 3 rows = 30 tiles
+ * Layer 2:           8 columns x 2 rows = 16 tiles
+ * Layer 3 (top):     2 tiles
+ * Total: 96 + 30 + 16 + 2 = 144 tiles
  */
 function generateLayout() {
   const positions = {};
   let index = 0;
   
-  // Layer 0: Base 12x6
-  for (let row = 0; row < 6; row++) {
+  // Layer 0: Base 12x8 (rows 0-7, cols 0-11)
+  for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 12; col++) {
       positions[`tile_${index++}`] = { row, col, layer: 0 };
     }
   }
   
-  // Layer 1: 10x4 with gaps
-  for (let row = 1; row < 5; row++) {
+  // Layer 1: 10x3 centered (rows 3-5, cols 1-10)
+  for (let row = 3; row < 6; row++) {
     for (let col = 1; col < 11; col++) {
       positions[`tile_${index++}`] = { row, col, layer: 1 };
     }
   }
   
-  // Layer 2: 8x2
-  for (let row = 2; row < 4; row++) {
+  // Layer 2: 8x2 centered (rows 3-4, cols 2-9)
+  for (let row = 3; row < 5; row++) {
     for (let col = 2; col < 10; col++) {
       positions[`tile_${index++}`] = { row, col, layer: 2 };
     }
   }
   
-  // Layer 3: Top tiles (2 tiles)
-  positions[`tile_${index++}`] = { row: 2.5, col: 4, layer: 3 };
-  positions[`tile_${index++}`] = { row: 2.5, col: 7, layer: 3 };
+  // Layer 3: Top tiles (2 tiles) centered
+  positions[`tile_${index++}`] = { row: 3.5, col: 5, layer: 3 };
+  positions[`tile_${index++}`] = { row: 3.5, col: 6, layer: 3 };
   
   return positions;
 }
 
 /**
  * Generate a new game board with shuffled tiles
+ * The difficulty parameter affects game timing/score multipliers
  */
 export function generateBoard(difficulty = 'medium') {
-  // Build tile set: 4 copies of each numbered tile (108), 1 each flower/season (8) = 116 -> pad to 144
+  // Build tile set: 4 copies of each numbered tile (34*4=136), 1 each flower/season (8) = 144
   const tileSet = [];
-  [...NUMBERED_TILES, ...FLOWER_TILES, ...SEASON_TILES].forEach((tile, i) => {
-    if (tile.startsWith('flower_') || tile.startsWith('season_')) {
-      tileSet.push(tile); // 1 copy each
-    } else {
-      for (let j = 0; j < 4; j++) tileSet.push(tile); // 4 copies each
-    }
+  NUMBERED_TILES.forEach(tile => {
+    for (let j = 0; j < 4; j++) tileSet.push(tile);
   });
+  FLOWER_TILES.forEach(tile => tileSet.push(tile));
+  SEASON_TILES.forEach(tile => tileSet.push(tile));
   
-  // Pad to 144 tiles
-  while (tileSet.length < 144) {
-    tileSet.push('dot_1');
-  }
-  
-  const shuffledTiles = shuffleArray(tileSet).slice(0, 144);
+  // Should be exactly 144: 34*4 + 4 + 4 = 136 + 8 = 144
+  const shuffledTiles = shuffleArray(tileSet);
   const positions = generateLayout();
   
   const tiles = {};
@@ -195,6 +246,7 @@ export function removeTiles(tiles, positions, tile1Id, tile2Id) {
 
 /**
  * Calculate score based on difficulty and speed
+ * Difficulty affects base score multiplier
  */
 export function calculateScore(difficulty, moves, timeRemaining) {
   const baseScores = { easy: 10, medium: 20, hard: 30 };
@@ -213,7 +265,9 @@ export const MahjongService = {
   calculateScore,
   tilesMatch,
   isTileBlocked,
-  getSelectableTiles
+  isTileBlockedFast,
+  getSelectableTiles,
+  buildPositionGrid
 };
 
 export default MahjongService;

@@ -32,15 +32,17 @@ export function initializeDatabase() {
   `);
 
   // Games table (for completed games)
+  // game_type: 'singlePlayer' | 'multiPlayer' (matching code usage)
+  // result: 'win' | 'loss' | 'draw' | 'abandoned' (matching code usage)
   db.exec(`
     CREATE TABLE IF NOT EXISTS games (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
-      game_type TEXT NOT NULL CHECK (game_type IN ('single', 'multi')),
+      game_type TEXT NOT NULL CHECK (game_type IN ('singlePlayer', 'multiPlayer')),
       difficulty TEXT CHECK (difficulty IN ('easy', 'medium', 'hard')),
       score INTEGER DEFAULT 0,
       duration INTEGER DEFAULT 0,
-      result TEXT NOT NULL CHECK (result IN ('win', 'loss', 'draw')),
+      result TEXT NOT NULL CHECK (result IN ('win', 'loss', 'draw', 'abandoned')),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id)
     )

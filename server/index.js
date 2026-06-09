@@ -25,17 +25,67 @@ const allowedOrigins = getAllowedOrigins();
 
 /**
  * Sanitize user input to prevent XSS attacks
+ * Uses a whitelist approach: strip all HTML tags, then entity-encode special chars
  * @param {string} str - Input string to sanitize
  * @returns {string} Sanitized string
  */
 function sanitize(str) {
-  return String(str)
+  if (typeof str !== 'string') return '';
+  // First, strip all HTML tags completely
+  let cleaned = str.replace(/<[^>]*>/g, '');
+  // Then entity-encode remaining special characters
+  cleaned = cleaned
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#x27;')
-    .slice(0, 500); // Limit message length
+    .replace(/\//g, '&#x2F;');
+  // Limit length to prevent abuse
+  return cleaned.slice(0, 500);
+}
+
+/**
+ * Simple rate limiter using in-memory store
+ * Limits each IP to maxRequests per windowMs
+ */
+function createRateLimiter(maxRequests = 100, windowMs = 60000) {
+  const store = new Map();
+
+  // Clean up expired entries every minute
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of store.entries()) {
+      if (now - entry.resetTime > windowMs) {
+        store.delete(key);
+      }
+    }
+  }, 60000);
+
+  return (req, res, next) => {
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    const now = Date.now();
+    
+    if (!store.has(ip)) {
+      store.set(ip, { count: 1, resetTime: now + windowMs });
+      return next();
+    }
+    
+    const entry = store.get(ip);
+    if (now > entry.resetTime) {
+      store.set(ip, { count: 1, resetTime: now + windowMs });
+      return next();
+    }
+    
+    entry.count++;
+    if (entry.count > maxRequests) {
+      return res.status(429).json({ 
+        error: 'Too many requests. Please try again later.' 
+      });
+    }
+    
+    next();
+  };
 }
 
 const app = express();
@@ -53,7 +103,10 @@ initializeDatabase();
 // Middleware
 app.use(express.json());
 
-// CORS configuration
+// Rate limiting - 100 requests per minute per IP
+app.use(createRateLimiter(100, 60000));
+
+// CORS configuration - only set headers for allowed origins
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin && allowedOrigins.includes(origin)) {
@@ -63,7 +116,11 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
+    // Only respond 200 if origin is allowed, otherwise 403
+    if (origin && allowedOrigins.includes(origin)) {
+      return res.sendStatus(200);
+    }
+    return res.sendStatus(403);
   }
   next();
 });
@@ -80,9 +137,24 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api/game', gameRoutes);
-app.use('/api/games', gamesRoutes);  // New plural route for games (includes /single-player)
+app.use('/api/games', gamesRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/lobby', lobbyRoutes);
+
+// Global error handler
+app.use((err, req, res, _next) => {
+  console.error('Unhandled error:', err);
+  const status = err.status || 500;
+  const message = process.env.NODE_ENV === 'production' 
+    ? 'Internal server error' 
+    : err.message || 'Internal server error';
+  res.status(status).json({ error: message });
+});
+
+// 404 handler for unmatched routes
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
 
 // Socket.IO for real-time multiplayer
 io.on('connection', (socket) => {

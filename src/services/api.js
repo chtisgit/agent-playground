@@ -11,6 +11,7 @@ const getAuthHeaders = () => {
 };
 
 // Game token management for guest single-player sessions
+// Server generates crypto.randomUUID() token - client just stores and forwards it
 function getGameToken() {
   return sessionStorage.getItem('gameToken') || null;
 }
@@ -21,7 +22,7 @@ const getCommonHeaders = () => {
     'Content-Type': 'application/json',
     ...getAuthHeaders(),
   };
-  // Include game token for guest game access
+  // Include game token for guest game access (server-generated, unforgeable)
   const gameToken = getGameToken();
   if (gameToken) {
     headers['x-game-token'] = gameToken;

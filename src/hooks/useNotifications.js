@@ -5,6 +5,7 @@ const NOTIFICATION_TYPES = {
   HINT: 'hint',
   SHUFFLE: 'shuffle',
   GAME_OVER: 'game-over',
+  NO_MOVES: 'no-moves',
   ERROR: 'error',
   INFO: 'info'
 };
@@ -37,7 +38,9 @@ export function useNotifications() {
 
   // Convenience methods
   const notifyMatch = useCallback((tile1, tile2) => {
-    return addNotification(`Match found! Tiles "${tile1.symbol}" and "${tile2.symbol}" removed.`, NOTIFICATION_TYPES.MATCH);
+    const name1 = tile1.label || tile1.type || tile1.symbol || '?';
+    const name2 = tile2.label || tile2.type || tile2.symbol || '?';
+    return addNotification(`Match found! "${name1}" and "${name2}" removed.`, NOTIFICATION_TYPES.MATCH);
   }, [addNotification]);
 
   const notifyHint = useCallback((tileIndex) => {
@@ -49,7 +52,11 @@ export function useNotifications() {
   }, [addNotification]);
 
   const notifyGameOver = useCallback((score) => {
-    return addNotification(`Game Over! Final Score: ${score}`, NOTIFICATION_TYPES.GAME_OVER, 0);
+    return addNotification(`🎉 Victory! Final Score: ${score}`, NOTIFICATION_TYPES.GAME_OVER, 0);
+  }, [addNotification]);
+
+  const notifyNoMoves = useCallback(() => {
+    return addNotification('No more valid moves available!', NOTIFICATION_TYPES.NO_MOVES, 0);
   }, [addNotification]);
 
   const notifyError = useCallback((message) => {
@@ -65,6 +72,7 @@ export function useNotifications() {
     notifyHint,
     notifyShuffle,
     notifyGameOver,
+    notifyNoMoves,
     notifyError,
     NOTIFICATION_TYPES
   };
