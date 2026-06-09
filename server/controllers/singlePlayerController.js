@@ -201,23 +201,29 @@ export function makeMove(req, res) {
       });
     }
     
-    // Check for match (simplified - matching by type)
-    const firstTile = game.tiles[game.selectedTile];
+    // FIX (ID 170): Save selectedTile index BEFORE clearing it
+    const savedSelectedIndex = game.selectedTile;
+    const firstTile = game.tiles[savedSelectedIndex];
     const secondTile = game.tiles[tileIndex];
     
-    // Basic match logic - same type, both unblocked
-    const isMatch = firstTile.type === secondTile.type && 
-                   !firstTile.removed && !secondTile.removed;
+    // FIX (ID 171): Use MahjongService.validateMatch for proper match validation
+    // This handles flower/season matching rules and tile blocking checks
+    const isMatch = MahjongService.validateMatch(
+      game.tileData,
+      game.positions,
+      firstTile.id,
+      secondTile.id
+    );
     
     // Mark both tiles as not selected
-    game.tiles[game.selectedTile].selected = false;
+    game.tiles[savedSelectedIndex].selected = false;
     game.selectedTile = undefined;
     
     let matched = false;
     
     if (isMatch) {
-      // Remove matched tiles
-      game.tiles[game.selectedTile].removed = true;
+      // FIX (ID 170): Use savedSelectedIndex instead of game.selectedTile (which is now undefined)
+      game.tiles[savedSelectedIndex].removed = true;
       game.tiles[tileIndex].removed = true;
       
       // Update tile data (for compatibility with MahjongService)
@@ -288,28 +294,22 @@ export function getHint(req, res) {
       return res.status(400).json({ error: 'No hints remaining' });
     }
     
-    // Find first available match
-    const availableTiles = Object.values(game.tiles).filter(t => !t.removed);
-    let tileIndex = -1;
-    
-    for (let i = 0; i < availableTiles.length; i++) {
-      const tile1 = availableTiles[i];
-      for (let j = i + 1; j < availableTiles.length; j++) {
-        const tile2 = availableTiles[j];
-        if (tile1.type === tile2.type) {
-          tileIndex = tile1.position.id ? 
-            Object.keys(game.tiles).find(key => game.tiles[key].id === tile1.id) : 
-            parseInt(Object.keys(game.tiles).find(key => game.tiles[key].id === tile1.id));
-          break;
-        }
-      }
-      if (tileIndex !== -1) break;
-    }
+    // Use MahjongService.getHint for proper hint logic (consistency with ID 171 fix)
+    const hint = MahjongService.getHint(game.tileData, game.positions);
     
     // Deduct hint
     game.hintsRemaining--;
     
-    res.json({ tileIndex: tileIndex !== -1 ? parseInt(tileIndex) : null });
+    if (!hint) {
+      return res.json({ tileIndex: null, message: 'No valid moves available' });
+    }
+    
+    // Find the index of the hinted tile in the game.tiles structure
+    const tileIndex = Object.keys(game.tiles).find(
+      key => game.tiles[key].id === hint.tile1Id
+    );
+    
+    res.json({ tileIndex: tileIndex !== undefined ? parseInt(tileIndex) : null });
   } catch (error) {
     console.error('Get hint error:', error);
     res.status(500).json({ error: 'Failed to get hint' });
