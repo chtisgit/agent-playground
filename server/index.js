@@ -5,8 +5,7 @@ import { initializeDatabase } from './models/database.js';
 import gameRoutes from './routes/game.js';
 import gamesRoutes from './routes/games.js';
 import authRoutes from './routes/auth.js';
-import lobbyRoutes from './routes/lobby.js';
-import singlePlayerRoutes from './routes/singlePlayer.js';
+import gamesRoutes from './routes/games.js';
 
 // CORS allowed origins - restrict based on environment
 const getAllowedOrigins = () => {
@@ -31,11 +30,7 @@ const allowedOrigins = getAllowedOrigins();
  * @returns {string} Sanitized string
  */
 function sanitize(str) {
-  if (typeof str !== 'string') return '';
-  // First, strip all HTML tags completely
-  let cleaned = str.replace(/<[^>]*>/g, '');
-  // Then entity-encode remaining special characters
-  cleaned = cleaned
+  return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -138,8 +133,7 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api/game', gameRoutes);
-app.use('/api/games', gamesRoutes);
-app.use('/api/games', singlePlayerRoutes); // New singular game endpoints for single-player
+app.use('/api/games', gamesRoutes); // Security-compliant single-player game endpoints
 app.use('/api/auth', authRoutes);
 app.use('/api/lobby', lobbyRoutes);
 

@@ -105,8 +105,7 @@ export function isTileBlockedFast(tileId, positions, grid) {
  * Get selectable (unblocked) tiles
  */
 export function getSelectableTiles(tiles, positions) {
-  const grid = buildPositionGrid(positions);
-  return tiles.filter(tileId => !isTileBlockedFast(tileId, positions, grid));
+  return tiles.filter(tileId => !isTileBlocked(tileId, positions));
 }
 
 /**

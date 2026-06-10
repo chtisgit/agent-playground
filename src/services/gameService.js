@@ -3,9 +3,10 @@ import { api } from './api';
 export const gameService = {
   async startSinglePlayer(difficulty = 'medium') {
     const response = await api.post('/games/single-player', { difficulty });
-    // Store game token for guest session persistence (server-generated, unforgeable)
+    // Store gameToken for guest (unauthenticated) single-player access
+    // Per Stefan's security decision: crypto.randomUUID() token, not spoofable
     if (response.gameToken) {
-      sessionStorage.setItem('gameToken', response.gameToken);
+      localStorage.setItem('gameToken', response.gameToken);
     }
     return response;
   },
@@ -29,27 +30,8 @@ export const gameService = {
   async endGame(gameId, score) {
     const response = await api.post(`/games/${gameId}/end`, { score });
     // Clear game token when game ends
-    sessionStorage.removeItem('gameToken');
+    // Guest games are removed from server Map at endGame — no stale data
+    localStorage.removeItem('gameToken');
     return response;
-  },
-
-  // Game state persistence - save current game progress
-  async saveGame(gameData) {
-    return api.post('/games/save', gameData);
-  },
-
-  // Resume the latest saved game
-  async resumeGame() {
-    return api.get('/games/resume');
-  },
-
-  // Load a specific saved game by ID
-  async loadGame(stateId) {
-    return api.get(`/games/load/${stateId}`);
-  },
-
-  // Delete a saved game
-  async deleteSavedGame(stateId) {
-    return api.delete(`/games/delete/${stateId}`);
   },
 };

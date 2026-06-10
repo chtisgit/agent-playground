@@ -13,8 +13,8 @@ export const userService = {
     return api.get('/auth/stats');
   },
 
-  async getHistory(limit = 20) {
-    return api.get(`/games/history?limit=${limit}`);
+  async getHistory(page = 1, limit = 10) {
+    return api.get(`/game/history?page=${page}&limit=${limit}`);
   },
 
   async register(username, email, password) {

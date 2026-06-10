@@ -30,10 +30,24 @@ const getCommonHeaders = () => {
   return headers;
 };
 
+// Helper to get game token header for guest single-player access
+// Per Stefan's security decision: X-Game-Token uses crypto.randomUUID()
+// which is not spoofable (unlike x-guest-id approach)
+const getGameTokenHeader = () => {
+  const gameToken = localStorage.getItem('gameToken');
+  return gameToken ? { 'X-Game-Token': gameToken } : {};
+};
+
+const getHeaders = () => ({
+  'Content-Type': 'application/json',
+  ...getAuthHeaders(),
+  ...getGameTokenHeader()
+});
+
 export const api = {
   async get(endpoint) {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      headers: getCommonHeaders(),
+      headers: getHeaders(),
     });
     if (!response.ok) throw new Error(`API Error: ${response.status}`);
     return response.json();
@@ -42,7 +56,7 @@ export const api = {
   async post(endpoint, data) {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: 'POST',
-      headers: getCommonHeaders(),
+      headers: getHeaders(),
       body: JSON.stringify(data),
     });
     if (!response.ok) throw new Error(`API Error: ${response.status}`);
@@ -52,7 +66,7 @@ export const api = {
   async put(endpoint, data) {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: 'PUT',
-      headers: getCommonHeaders(),
+      headers: getHeaders(),
       body: JSON.stringify(data),
     });
     if (!response.ok) throw new Error(`API Error: ${response.status}`);
@@ -62,7 +76,7 @@ export const api = {
   async delete(endpoint) {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: 'DELETE',
-      headers: getCommonHeaders(),
+      headers: getHeaders(),
     });
     if (!response.ok) throw new Error(`API Error: ${response.status}`);
     return response.json();

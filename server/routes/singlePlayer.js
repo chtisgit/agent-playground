@@ -7,12 +7,12 @@ import {
   shuffleBoard,
   endGame
 } from '../controllers/singlePlayerController.js';
-import { optionalAuth } from '../middleware/auth.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
 
-// Use optionalAuth to allow guest users to play single-player
-router.use(optionalAuth);
+// All routes require authentication
+router.use(authenticate);
 
 // Single player game routes
 router.post('/single-player', startSinglePlayerGame);

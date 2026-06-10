@@ -29,26 +29,6 @@ function createTiles(tilesData, positionsData) {
 }
 
 /**
- * Helper: Build the consistent game state response object
- */
-function buildGameResponse(game) {
-  const totalTiles = Object.keys(game.tileData).length;
-  const totalMatches = Math.floor(totalTiles / 2);
-
-  return {
-    id: game.id,
-    difficulty: game.difficulty,
-    score: game.score,
-    matches: game.matches,
-    totalMatches,
-    tiles: Object.values(game.tiles),
-    ended: game.ended,
-    hintsRemaining: game.hintsRemaining,
-    shufflesRemaining: game.shufflesRemaining
-  };
-}
-
-/**
  * Start a new single-player game
  * POST /api/games/single-player
  */
@@ -65,7 +45,7 @@ export function startSinglePlayerGame(req, res) {
     
     const game = {
       id: gameId,
-      userId: req.user ? req.user.id : null,  // Allow guest users
+      userId: req.user.id,
       difficulty,
       tiles,
       tileData: tilesData,
@@ -82,8 +62,22 @@ export function startSinglePlayerGame(req, res) {
     // Store in active games
     activeGames.set(gameId, game);
     
+    // Calculate total matches needed (144 tiles / 2 = 72 matches)
+    const totalTiles = Object.keys(tilesData).length;
+    const totalMatches = Math.floor(totalTiles / 2);
+    
     res.status(201).json({
-      game: buildGameResponse(game)
+      game: {
+        id: gameId,
+        difficulty,
+        score: 0,
+        matches: 0,
+        totalMatches,
+        tiles: Object.values(tiles),
+        ended: false,
+        hintsRemaining: game.hintsRemaining,
+        shufflesRemaining: game.shufflesRemaining
+      }
     });
   } catch (error) {
     console.error('Start single-player game error:', error);
@@ -104,13 +98,26 @@ export function getGameState(req, res) {
       return res.status(404).json({ error: 'Game not found' });
     }
     
-    // Verify ownership (skip for guest games with null userId)
-    if (game.userId !== null && game.userId !== req.user?.id) {
+    // Verify ownership
+    if (game.userId !== req.user.id) {
       return res.status(403).json({ error: 'Not authorized to access this game' });
     }
     
+    const totalTiles = Object.keys(game.tileData).length;
+    const totalMatches = Math.floor(totalTiles / 2);
+    
     res.json({
-      game: buildGameResponse(game)
+      game: {
+        id: game.id,
+        difficulty: game.difficulty,
+        score: game.score,
+        matches: game.matches,
+        totalMatches,
+        tiles: Object.values(game.tiles),
+        ended: game.ended,
+        hintsRemaining: game.hintsRemaining,
+        shufflesRemaining: game.shufflesRemaining
+      }
     });
   } catch (error) {
     console.error('Get game state error:', error);
@@ -132,7 +139,7 @@ export function makeMove(req, res) {
       return res.status(404).json({ error: 'Game not found' });
     }
     
-    if (game.userId !== null && game.userId !== req.user?.id) {
+    if (game.userId !== req.user.id) {
       return res.status(403).json({ error: 'Not authorized' });
     }
     
@@ -143,12 +150,7 @@ export function makeMove(req, res) {
     // Get the clicked tile
     const clickedTile = game.tiles[tileIndex];
     if (!clickedTile || clickedTile.removed) {
-      return res.status(400).json({ error: 'Invalid tile or tile already removed' });
-    }
-
-    // Validate that the tile is not blocked
-    if (MahjongService.isTileBlocked(clickedTile.id, game.positions)) {
-      return res.status(400).json({ error: 'Tile is blocked and cannot be selected' });
+      return res.status(400).json({ error: 'Invalid tile' });
     }
     
     // Handle first selection
@@ -156,9 +158,22 @@ export function makeMove(req, res) {
       game.selectedTile = tileIndex;
       game.tiles[tileIndex].selected = true;
       
+      const totalTiles = Object.keys(game.tileData).length;
+      const totalMatches = Math.floor(totalTiles / 2);
+      
       return res.json({
         matched: false,
-        game: buildGameResponse(game)
+        game: {
+          id: game.id,
+          difficulty: game.difficulty,
+          score: game.score,
+          matches: game.matches,
+          totalMatches,
+          tiles: Object.values(game.tiles),
+          ended: game.ended,
+          hintsRemaining: game.hintsRemaining,
+          shufflesRemaining: game.shufflesRemaining
+        }
       });
     }
     
@@ -167,29 +182,32 @@ export function makeMove(req, res) {
       game.tiles[game.selectedTile].selected = false;
       game.selectedTile = undefined;
       
+      const totalTiles = Object.keys(game.tileData).length;
+      const totalMatches = Math.floor(totalTiles / 2);
+      
       return res.json({
         matched: false,
-        game: buildGameResponse(game)
+        game: {
+          id: game.id,
+          difficulty: game.difficulty,
+          score: game.score,
+          matches: game.matches,
+          totalMatches,
+          tiles: Object.values(game.tiles),
+          ended: game.ended,
+          hintsRemaining: game.hintsRemaining,
+          shufflesRemaining: game.shufflesRemaining
+        }
       });
     }
     
-    // CRITICAL FIX: Save selectedTile index BEFORE clearing it
-    // Previously, game.selectedTile was set to undefined before being used
-    // to mark the first tile as removed, causing only the second tile to be removed.
+    // FIX (ID 170): Save selectedTile index BEFORE clearing it
     const savedSelectedIndex = game.selectedTile;
     const firstTile = game.tiles[savedSelectedIndex];
     const secondTile = game.tiles[tileIndex];
-
-    // Validate the second tile is not blocked either
-    if (MahjongService.isTileBlocked(secondTile.id, game.positions)) {
-      // Deselect the first tile and return error
-      game.tiles[savedSelectedIndex].selected = false;
-      game.selectedTile = undefined;
-      return res.status(400).json({ error: 'Second tile is blocked and cannot be selected' });
-    }
     
-    // Use MahjongService.validateMatch for proper match validation
-    // This handles flower/season matching rules and tile existence checks
+    // FIX (ID 171): Use MahjongService.validateMatch for proper match validation
+    // This handles flower/season matching rules and tile blocking checks
     const isMatch = MahjongService.validateMatch(
       game.tileData,
       game.positions,
@@ -197,14 +215,14 @@ export function makeMove(req, res) {
       secondTile.id
     );
     
-    // Mark both tiles as not selected (always, regardless of match)
+    // Mark both tiles as not selected
     game.tiles[savedSelectedIndex].selected = false;
     game.selectedTile = undefined;
     
     let matched = false;
     
     if (isMatch) {
-      // Use savedSelectedIndex (not game.selectedTile which is now undefined)
+      // FIX (ID 170): Use savedSelectedIndex instead of game.selectedTile (which is now undefined)
       game.tiles[savedSelectedIndex].removed = true;
       game.tiles[tileIndex].removed = true;
       
@@ -220,17 +238,30 @@ export function makeMove(req, res) {
       game.score += pointsPerMatch[game.difficulty] || 20;
       matched = true;
       
-      // Check if game is complete (no tiles remaining)
-      if (Object.keys(game.tileData).length === 0) {
+      // Check if game is complete
+      if (game.matches >= 72) {
         game.ended = true;
       }
     }
     
     game.moves++;
     
+    const totalTiles = Object.keys(game.tileData).length;
+    const totalMatches = Math.floor(totalTiles / 2);
+    
     res.json({
       matched,
-      game: buildGameResponse(game)
+      game: {
+        id: game.id,
+        difficulty: game.difficulty,
+        score: game.score,
+        matches: game.matches,
+        totalMatches,
+        tiles: Object.values(game.tiles),
+        ended: game.ended,
+        hintsRemaining: game.hintsRemaining,
+        shufflesRemaining: game.shufflesRemaining
+      }
     });
   } catch (error) {
     console.error('Make move error:', error);
@@ -251,7 +282,7 @@ export function getHint(req, res) {
       return res.status(404).json({ error: 'Game not found' });
     }
     
-    if (game.userId !== null && game.userId !== req.user?.id) {
+    if (game.userId !== req.user.id) {
       return res.status(403).json({ error: 'Not authorized' });
     }
     
@@ -263,8 +294,7 @@ export function getHint(req, res) {
       return res.status(400).json({ error: 'No hints remaining' });
     }
     
-    // Use MahjongService.getHint for proper hint logic
-    // This correctly handles flower/season matching and tile blocking
+    // Use MahjongService.getHint for proper hint logic (consistency with ID 171 fix)
     const hint = MahjongService.getHint(game.tileData, game.positions);
     
     // Deduct hint
@@ -299,7 +329,7 @@ export function shuffleBoard(req, res) {
       return res.status(404).json({ error: 'Game not found' });
     }
     
-    if (game.userId !== null && game.userId !== req.user?.id) {
+    if (game.userId !== req.user.id) {
       return res.status(403).json({ error: 'Not authorized' });
     }
     
@@ -315,7 +345,7 @@ export function shuffleBoard(req, res) {
     const remainingTiles = Object.entries(game.tileData)
       .filter(([_, tileId]) => tileId);
     
-    // Shuffle the tile types using Fisher-Yates
+    // Shuffle the tile types
     const types = remainingTiles.map(([_, type]) => type);
     for (let i = types.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -337,8 +367,21 @@ export function shuffleBoard(req, res) {
     // Deduct shuffle
     game.shufflesRemaining--;
     
+    const totalTiles = Object.keys(game.tileData).length;
+    const totalMatches = Math.floor(totalTiles / 2);
+    
     res.json({
-      game: buildGameResponse(game)
+      game: {
+        id: game.id,
+        difficulty: game.difficulty,
+        score: game.score,
+        matches: game.matches,
+        totalMatches,
+        tiles: Object.values(game.tiles),
+        ended: game.ended,
+        hintsRemaining: game.hintsRemaining,
+        shufflesRemaining: game.shufflesRemaining
+      }
     });
   } catch (error) {
     console.error('Shuffle board error:', error);
@@ -353,44 +396,38 @@ export function shuffleBoard(req, res) {
 export function endGame(req, res) {
   try {
     const { gameId } = req.params;
+    const { score } = req.body;
     const game = activeGames.get(gameId);
     
     if (!game) {
       return res.status(404).json({ error: 'Game not found' });
     }
-    if (game.userId !== null && game.userId !== req.user?.id) {
+    if (game.userId !== req.user.id) {
       return res.status(403).json({ error: 'Not authorized' });
     }
     
-    // SECURITY FIX: Always use server-side game.score, never trust client-submitted score
-    // This prevents score injection attacks where a client could submit a bogus score
-    const finalScore = game.score;
+    // Record the completed game
+    GameModel.recordGame({
+      userId: req.user.id,
+      gameType: 'single-player',
+      difficulty: game.difficulty,
+      score: score || game.score,
+      duration: Math.floor((Date.now() - new Date(game.createdAt).getTime()) / 1000),
+      result: game.ended || game.matches >= 72 ? 'completed' : 'forfeited'
+    });
     
-    // Only record in persistent storage if authenticated user
-    if (req.user) {
-      // Record the completed game
-      GameModel.recordGame({
-        userId: req.user.id,
-        gameType: 'single-player',
-        difficulty: game.difficulty,
-        score: finalScore,
-        duration: Math.floor((Date.now() - new Date(game.createdAt).getTime()) / 1000),
-        result: game.ended || game.matches >= 72 ? 'completed' : 'forfeited'
-      });
-      
-      // Add to leaderboard
-      GameModel.addLeaderboardEntry({
-        userId: req.user.id,
-        score: finalScore,
-        gameType: 'single-player',
-        difficulty: game.difficulty
-      });
-    }
+    // Add to leaderboard
+    GameModel.addLeaderboardEntry({
+      userId: req.user.id,
+      score: score || game.score,
+      gameType: 'single-player',
+      difficulty: game.difficulty
+    });
     
     // Remove from active games
     activeGames.delete(gameId);
     
-    res.json({ message: 'Game ended successfully', score: finalScore });
+    res.json({ message: 'Game ended successfully' });
   } catch (error) {
     console.error('End game error:', error);
     res.status(500).json({ error: 'Failed to end game' });

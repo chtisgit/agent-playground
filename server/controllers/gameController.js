@@ -2,58 +2,51 @@ import GameModel from '../models/game.js';
 import { MahjongService } from '../services/mahjongService.js';
 
 /**
- * Start a single-player game
- * POST /api/games/single-player
+ * Start a new single-player game
+ * POST /api/game/single-player
  */
 export function startSinglePlayer(req, res) {
   try {
     const { difficulty = 'medium' } = req.body;
-    
-    // Generate board using MahjongService
     const { tiles, positions } = MahjongService.generateBoard(difficulty);
     
-    // Format tiles with game state properties
-    const formattedTiles = tiles.map((tile, index) => ({
-      ...tile,
-      index,
-      removed: false,
-      selected: false
-    }));
-    
-    // Create active game for real-time play (server-side state)
+    // Create a new game record
     const gameId = GameModel.createGame({
       userId: req.user.id,
       gameType: 'singlePlayer',
       difficulty,
-      tiles: formattedTiles,
+      tiles,
       tilePositions: positions
     });
     
-    // Get the created game
-    const game = GameModel.getGameById(gameId, req.user.id);
+    // Format response to match frontend expectations
+    const gameData = {
+      id: gameId,
+      gameType: 'singlePlayer',
+      difficulty,
+      tiles: tiles.map((tile, index) => ({
+        ...tile,
+        index,
+        removed: false,
+        selected: false
+      })),
+      positions,
+      score: 0,
+      moves: 0,
+      matches: 0,
+      ended: false,
+      status: 'active'
+    };
     
     res.status(201).json({
-      game: {
-        id: gameId,
-        gameType: 'singlePlayer',
-        difficulty,
-        tiles: game.tiles,
-        positions: game.tilePositions,
-        score: 0,
-        moves: 0,
-        matches: 0,
-        ended: false,
-        status: 'active'
-      },
+      game: gameData,
       status: 'active'
     });
   } catch (error) {
     console.error('Start single-player game error:', error);
-    res.status(500).json({ error: 'Failed to start single-player game' });
+    res.status(500).json({ error: 'Failed to start game' });
   }
 }
-
-// === Existing flat routes (for backward compatibility) ===
 
 /**
  * Save current game state
