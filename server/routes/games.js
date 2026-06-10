@@ -156,7 +156,7 @@ router.post('/:gameId/move', guestUser, (req, res) => {
       game.selectedTileIndex = undefined;
       
       // Validate match: same suit AND same value
-      if (firstTile.suit === secondTile.suit && firstTile.value === secondTile.value) {
+      if (MahjongService.tilesMatch(firstTile.type, secondTile.type)) {
         // Remove matched tiles
         game.tiles[firstIndex].removed = true;
         game.tiles[tileIndex].removed = true;

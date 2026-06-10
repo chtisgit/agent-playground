@@ -300,7 +300,7 @@ export function validateMatch(req, res) {
     }
     
     // Use suit/value match for inline validation (compatible with game state format)
-    const isValid = tile1.suit === tile2.suit && tile1.value === tile2.value;
+    const isValid = MahjongService.tilesMatch(tile1.type, tile2.type);
     
     res.json({ valid: isValid });
   } catch (error) {
