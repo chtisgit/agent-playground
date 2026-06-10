@@ -2,30 +2,30 @@ import { api } from './api';
 
 export const userService = {
   async getProfile() {
-    return api.get('/users/profile');
+    return api.get('/auth/profile');
   },
 
   async updateProfile(data) {
-    return api.put('/users/profile', data);
+    return api.put('/auth/profile', data);
   },
 
   async getStats() {
-    return api.get('/users/stats');
+    return api.get('/auth/stats');
   },
 
   async getHistory(page = 1, limit = 10) {
-    return api.get(`/users/history?page=${page}&limit=${limit}`);
+    return api.get(`/game/history?page=${page}&limit=${limit}`);
   },
 
   async register(username, email, password) {
-    return api.post('/users/register', { username, email, password });
+    return api.post('/auth/register', { username, email, password });
   },
 
   async login(username, password) {
-    return api.post('/users/login', { username, password });
+    return api.post('/auth/login', { username, password });
   },
 
   async logout() {
-    return api.post('/users/logout', {});
+    return api.post('/auth/logout', {});
   },
 };
