@@ -18,7 +18,7 @@ const SEASON_TILES = ['season_1', 'season_2', 'season_3', 'season_4'];
 /**
  * Check if two tiles match
  */
-function tilesMatch(tile1Id, tile2Id) {
+export function tilesMatch(tile1Id, tile2Id) {
   if (tile1Id === tile2Id) return true;
   if (tile1Id.startsWith('flower_') && tile2Id.startsWith('flower_')) return true;
   if (tile1Id.startsWith('season_') && tile2Id.startsWith('season_')) return true;
@@ -28,7 +28,7 @@ function tilesMatch(tile1Id, tile2Id) {
 /**
  * Check if a tile is blocked
  */
-function isTileBlocked(tileId, positions) {
+export function isTileBlocked(tileId, positions) {
   const tile = positions[tileId];
   if (!tile) return true;
   
@@ -55,7 +55,7 @@ function isTileBlocked(tileId, positions) {
 /**
  * Get selectable (unblocked) tiles
  */
-function getSelectableTiles(tiles, positions) {
+export function getSelectableTiles(tiles, positions) {
   return tiles.filter(tileId => !isTileBlocked(tileId, positions));
 }
 
