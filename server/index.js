@@ -6,6 +6,7 @@ import gameRoutes from './routes/game.js';
 import gamesRoutes from './routes/games.js';
 import authRoutes from './routes/auth.js';
 import lobbyRoutes from './routes/lobby.js';
+import singlePlayerRoutes from './routes/singlePlayer.js';
 
 // CORS allowed origins - restrict based on environment
 const getAllowedOrigins = () => {
@@ -138,6 +139,7 @@ app.get('/health', (req, res) => {
 // API Routes
 app.use('/api/game', gameRoutes);
 app.use('/api/games', gamesRoutes);
+app.use('/api/games', singlePlayerRoutes); // New singular game endpoints for single-player
 app.use('/api/auth', authRoutes);
 app.use('/api/lobby', lobbyRoutes);
 
