@@ -1,358 +1,196 @@
 import { Router } from 'express';
-import { optionalAuth } from '../middleware/auth.js';
-import { MahjongService } from '../services/mahjongService.js';
+import { 
+  saveGame, 
+  loadGame, 
+  resumeGame, 
+  updateGame, 
+  deleteGame, 
+  completeGame, 
+  getHistory, 
+  getLeaderboard,
+  generateGame,
+  validateMatch,
+  getHint,
+  startSinglePlayer
+} from '../controllers/gameController.js';
+import { authenticate, optionalAuth } from '../middleware/auth.js';
 import GameModel from '../models/game.js';
-import db from '../models/database.js';
-import crypto from 'crypto';
+import { MahjongService } from '../services/mahjongService.js';
 
 const router = Router();
 
-// In-memory store for guest (unauthenticated) single-player games
-// Keyed by crypto.randomUUID() token — per Stefan's security decision
-const guestGames = new Map();
-
-// Helper: Generate unique game ID
-function generateGameId() {
-  return `sp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-// Helper: Create tiles structure from MahjongService output
-function createTiles(tilesData, positionsData) {
-  const tiles = {};
-  const tileArray = [];
-  
-  for (const [tileId, tileType] of Object.entries(tilesData)) {
-    const pos = positionsData[tileId];
-    if (pos) {
-      tileArray.push({
-        id: tileId,
-        type: tileType,
-        position: pos,
-        removed: false,
-        selected: false
-      });
-      tiles[tileId] = {
-        id: tileId,
-        type: tileType,
-        position: pos,
-        removed: false,
-        selected: false
-      };
-    }
+// Guest user middleware - allows single-player without login
+// Assigns a guest user ID for unauthenticated requests
+const guestUser = (req, res, next) => {
+  if (!req.user) {
+    // Generate a guest user ID
+    const guestId = 1000000 + Math.floor(Math.random() * 900000);
+    req.user = { id: guestId, username: 'guest', isGuest: true };
   }
-  return { tiles, tileArray };
-}
+  next();
+};
 
-// Helper: Calculate score server-side
-function calculateScore(matches, moves, difficulty, startTime) {
-  const baseScores = { easy: 100, medium: 200, hard: 300 };
-  const base = baseScores[difficulty] || 200;
-  const matchBonus = matches * base;
-  const timeBonus = Math.max(0, 300 - Math.floor((Date.now() - startTime) / 1000));
-  const efficiencyBonus = Math.max(0, matches * 10 - moves);
-  return matchBonus + timeBonus + efficiencyBonus;
+/**
+ * Parse tile type string into suit and value components
+ * e.g. 'dot_1' -> { suit: 'dot', value: '1' }
+ */
+function parseTileType(type) {
+  const underscoreIndex = type.indexOf('_');
+  if (underscoreIndex === -1) {
+    return { suit: type, value: '' };
+  }
+  return {
+    suit: type.substring(0, underscoreIndex),
+    value: type.substring(underscoreIndex + 1)
+  };
 }
 
 /**
- * Look up a game by its source.
- * - Authenticated users: DB-backed, keyed by user ID
- * - Guest users: in-memory Map, keyed by X-Game-Token header
- * 
- * Returns { game, source: 'guest'|'user', record } or null
+ * Convert tiles object (from generateBoard: { tileId: tileType }) 
+ * to formatted array for game state storage
  */
-function findGame(req) {
-  // Authenticated user: look up in DB
-  if (req.user) {
-    const stmt = db.prepare(`
-      SELECT * FROM game_states 
-      WHERE game_type = 'active-game' AND user_id = ?
-      ORDER BY updated_at DESC LIMIT 1
-    `);
-    const gameRecord = stmt.get(req.user.id);
-    if (!gameRecord) return null;
-    
-    const game = JSON.parse(gameRecord.tiles);
-    return { game, source: 'user', record: gameRecord };
-  }
-  
-  // Guest: look up by X-Game-Token in in-memory Map
-  const gameToken = req.headers['x-game-token'];
-  if (!gameToken) return null;
-  
-  const game = guestGames.get(gameToken);
-  if (!game) return null;
-  
-  return { game, source: 'guest', token: gameToken };
+function formatTilesFromBoard(tilesObj) {
+  return Object.entries(tilesObj).map(([tileId, tileType], index) => {
+    const { suit, value } = parseTileType(tileType);
+    return {
+      id: tileId,
+      type: tileType,
+      suit,
+      value,
+      index,
+      removed: false,
+      selected: false
+    };
+  });
 }
+
+// Single player game endpoint - PUBLIC (no auth required)
+router.post('/single-player', guestUser, startSinglePlayer);
+
+// Game state management (flat routes - require auth)
+router.post('/save', authenticate, saveGame);
+router.get('/load/:stateId', authenticate, loadGame);
+router.get('/resume', authenticate, resumeGame);
+router.put('/update/:stateId', authenticate, updateGame);
+router.delete('/delete/:stateId', authenticate, deleteGame);
+
+// Game completion and stats (require auth)
+router.post('/complete', authenticate, completeGame);
+router.get('/history', authenticate, getHistory);
+router.get('/leaderboard', authenticate, getLeaderboard);
+
+// Game logic - PUBLIC (no auth required for game generation/validation)
+router.post('/generate', optionalAuth, generateGame);
+router.post('/validate', optionalAuth, validateMatch);
+router.post('/hint', optionalAuth, getHint);
+
+// === Game-specific endpoints with gameId parameter - PUBLIC (guest support) ===
 
 /**
- * Persist game state after modification
+ * Get game state by ID
+ * GET /api/games/:gameId
  */
-function persistGame(source, game, record, token) {
-  if (source === 'user') {
-    const updateStmt = db.prepare(`
-      UPDATE game_states SET tiles = ?, score = ?, moves = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
-    `);
-    updateStmt.run(JSON.stringify(game), game.score, game.moves, record.id);
-  }
-  // Guest games are already in the in-memory Map (mutated in place)
-}
-
-// POST /api/games/single-player - Start new game
-router.post('/single-player', optionalAuth, (req, res) => {
-  try {
-    const { difficulty = 'medium' } = req.body;
-    const gameId = generateGameId();
-    
-    // Use MahjongService to generate board
-    const { tiles: tilesData, positions: positionsData } = MahjongService.generateBoard(difficulty);
-    const { tiles, tileArray } = createTiles(tilesData, positionsData);
-    
-    const activeGame = {
-      gameId,
-      difficulty,
-      matches: 0,
-      moves: 0,
-      score: 0,
-      tiles,
-      tilePositions: positionsData,
-      startTime: new Date().toISOString(),
-      hintsRemaining: 3,
-      shufflesRemaining: 3,
-      selectedTile: null,
-      ended: false
-    };
-    
-    let gameToken = null;
-    
-    if (req.user) {
-      // AUTHENTICATED USER: DB-backed storage
-      activeGame.userId = req.user.id;
-      
-      const activeStmt = db.prepare(`
-        INSERT INTO game_states (user_id, game_type, difficulty, tiles, tile_positions, score, moves, hints_used)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      activeStmt.run(
-        req.user.id,
-        'active-game',
-        difficulty,
-        JSON.stringify(activeGame),
-        JSON.stringify(positionsData),
-        0,
-        0,
-        0
-      );
-    } else {
-      // GUEST: crypto.randomUUID() token + in-memory Map
-      // Per Stefan's security decision: no guest accounts, no DB storage, no spoofable IDs
-      gameToken = crypto.randomUUID();
-      activeGame.userId = null;
-      activeGame.gameToken = gameToken;
-      guestGames.set(gameToken, activeGame);
-    }
-    
-    const responseBody = {
-      game: {
-        id: gameId,
-        difficulty,
-        score: 0,
-        matches: 0,
-        totalMatches: 72,
-        tiles: tileArray,
-        ended: false,
-        hintsRemaining: 3,
-        shufflesRemaining: 3
-      }
-    };
-    
-    // Return gameToken to guest clients so they can access their game
-    if (gameToken) {
-      responseBody.gameToken = gameToken;
-    }
-    
-    res.status(201).json(responseBody);
-  } catch (error) {
-    console.error('Start single-player error:', error);
-    res.status(500).json({ error: 'Failed to start game' });
-  }
-});
-
-// GET /api/games/:gameId - Get game state
-router.get('/:gameId', optionalAuth, (req, res) => {
+router.get('/:gameId', guestUser, (req, res) => {
   try {
     const { gameId } = req.params;
-    const lookup = findGame(req);
+    const game = GameModel.getGameById(gameId, req.user.id);
     
-    if (!lookup) {
+    if (!game) {
       return res.status(404).json({ error: 'Game not found' });
     }
     
-    const { game, source } = lookup;
-    
-    // Verify gameId matches
-    if (game.gameId !== gameId) {
-      return res.status(404).json({ error: 'Game not found' });
-    }
-    
-    // Recalculate score server-side - never trust client
-    const serverScore = calculateScore(
-      game.matches,
-      game.moves,
-      game.difficulty,
-      new Date(game.startTime).getTime()
-    );
-    
-    res.json({
-      game: {
-        id: gameId,
-        difficulty: game.difficulty,
-        score: serverScore,
-        matches: game.matches,
-        totalMatches: 72,
-        tiles: Object.values(game.tiles).filter(t => !t.removed),
-        ended: game.ended,
-        hintsRemaining: game.hintsRemaining,
-        shufflesRemaining: game.shufflesRemaining
-      }
-    });
+    res.json({ game });
   } catch (error) {
-    console.error('Get game state error:', error);
-    res.status(500).json({ error: 'Failed to get game state' });
+    console.error('Get game error:', error);
+    res.status(500).json({ error: 'Failed to get game' });
   }
 });
 
-// POST /api/games/:gameId/move - Make a move
-router.post('/:gameId/move', optionalAuth, (req, res) => {
+/**
+ * Make a move (select a tile or match tiles)
+ * POST /api/games/:gameId/move
+ */
+router.post('/:gameId/move', guestUser, (req, res) => {
   try {
     const { gameId } = req.params;
     const { tileIndex } = req.body;
-    const lookup = findGame(req);
     
-    if (!lookup) {
+    // Get game from server-side state
+    const game = GameModel.getGameById(gameId, req.user.id);
+    if (!game) {
       return res.status(404).json({ error: 'Game not found' });
     }
     
-    const { game, source, record, token } = lookup;
-    
-    if (game.gameId !== gameId || game.ended) {
-      return res.status(400).json({ error: game.ended ? 'Game has ended' : 'Game not found' });
+    if (game.ended) {
+      return res.status(400).json({ error: 'Game has already ended' });
     }
     
-    // Get tile from server state (NOT from client) - prevent manipulation
-    const tileIds = Object.keys(game.tiles);
-    if (tileIndex < 0 || tileIndex >= tileIds.length) {
+    // Validate tileIndex
+    if (tileIndex === undefined || tileIndex < 0 || tileIndex >= game.tiles.length) {
       return res.status(400).json({ error: 'Invalid tile index' });
     }
     
-    const clickedTileId = tileIds[tileIndex];
-    const clickedTile = game.tiles[clickedTileId];
-    
+    const clickedTile = game.tiles[tileIndex];
     if (!clickedTile || clickedTile.removed) {
-      return res.status(400).json({ error: 'Invalid tile' });
+      return res.status(400).json({ error: 'Invalid or removed tile' });
     }
     
-    // First selection
-    if (game.selectedTile === null) {
-      game.selectedTile = clickedTileId;
-      game.tiles[clickedTileId].selected = true;
+    // Toggle selection using selectedTileIndex tracker
+    let matchMade = false;
+    if (game.selectedTileIndex === undefined) {
+      // First selection
+      game.selectedTileIndex = tileIndex;
+      game.tiles[tileIndex].selected = true;
+    } else if (game.selectedTileIndex === tileIndex) {
+      // Deselect same tile
+      game.tiles[tileIndex].selected = false;
+      game.selectedTileIndex = undefined;
+    } else {
+      // Second tile - check for match using suit/value (server-side validation)
+      const firstTile = game.tiles[game.selectedTileIndex];
+      const secondTile = game.tiles[tileIndex];
+      const firstIndex = game.selectedTileIndex;
       
-      persistGame(source, game, record, token);
+      // Reset selection state
+      game.tiles[firstIndex].selected = false;
+      game.selectedTileIndex = undefined;
       
-      return res.json({
-        matched: false,
-        game: {
-          id: gameId,
-          difficulty: game.difficulty,
-          score: game.score,
-          matches: game.matches,
-          totalMatches: 72,
-          tiles: Object.values(game.tiles),
-          ended: game.ended
+      // Validate match: same suit AND same value
+      if (MahjongService.tilesMatch(firstTile.type, secondTile.type)) {
+        // Remove matched tiles
+        game.tiles[firstIndex].removed = true;
+        game.tiles[tileIndex].removed = true;
+        
+        game.matches = (game.matches || 0) + 1;
+        const pointsPerMatch = { easy: 10, medium: 20, hard: 30 };
+        game.score = (game.score || 0) + (pointsPerMatch[game.difficulty] || 20);
+        matchMade = true;
+        
+        // Check if game is fully cleared
+        const remainingTiles = game.tiles.filter(t => !t.removed).length;
+        if (remainingTiles === 0) {
+          game.ended = true;
+          game.status = 'completed';
         }
-      });
-    }
-    
-    // Same tile - deselect
-    if (game.selectedTile === clickedTileId) {
-      game.tiles[game.selectedTile].selected = false;
-      game.selectedTile = null;
-      
-      persistGame(source, game, record, token);
-      
-      return res.json({
-        matched: false,
-        game: {
-          id: gameId,
-          difficulty: game.difficulty,
-          score: game.score,
-          matches: game.matches,
-          totalMatches: 72,
-          tiles: Object.values(game.tiles),
-          ended: game.ended
-        }
-      });
-    }
-    
-    // Validate match using MahjongService - server-side validation
-    const firstTileId = game.selectedTile;
-    
-    // Extract just the tile types for matching logic
-    const tileTypes = {};
-    for (const [id, tile] of Object.entries(game.tiles)) {
-      if (!tile.removed) {
-        tileTypes[id] = tile.type;
       }
+      
+      game.moves = (game.moves || 0) + 1;
     }
     
-    const isValid = MahjongService.validateMatch(
-      tileTypes,
-      game.tilePositions,
-      firstTileId,
-      clickedTileId
-    );
+    // Save updated game state
+    GameModel.updateGame(gameId, game);
     
-    let matched = false;
-    
-    if (isValid) {
-      // Remove matched tiles - state change on server
-      game.tiles[firstTileId].removed = true;
-      game.tiles[clickedTileId].removed = true;
-      game.matches++;
-      
-      // Calculate score server-side - never trust client score
-      game.score = calculateScore(
-        game.matches,
-        game.moves,
-        game.difficulty,
-        new Date(game.startTime).getTime()
-      );
-      
-      matched = true;
-      
-      // Check if game is complete
-      if (game.matches >= 72) {
-        game.ended = true;
-      }
-    }
-    
-    game.tiles[firstTileId].selected = false;
-    game.selectedTile = null;
-    game.moves++;
-    
-    // Persist updated state
-    persistGame(source, game, record, token);
-    
-    res.json({
-      matched,
+    res.json({ 
+      matched: matchMade,
       game: {
-        id: gameId,
+        id: game.id,
         difficulty: game.difficulty,
         score: game.score,
+        moves: game.moves,
         matches: game.matches,
-        totalMatches: 72,
-        tiles: Object.values(game.tiles),
-        ended: game.ended
+        tiles: game.tiles,
+        ended: game.ended,
+        status: game.status
       }
     });
   } catch (error) {
@@ -361,167 +199,177 @@ router.post('/:gameId/move', optionalAuth, (req, res) => {
   }
 });
 
-// GET /api/games/:gameId/hint - Get hint
-router.get('/:gameId/hint', optionalAuth, (req, res) => {
+/**
+ * Get hint for the current game
+ * GET /api/games/:gameId/hint
+ */
+router.get('/:gameId/hint', guestUser, (req, res) => {
   try {
     const { gameId } = req.params;
-    const lookup = findGame(req);
     
-    if (!lookup) {
+    const game = GameModel.getGameById(gameId, req.user.id);
+    if (!game) {
       return res.status(404).json({ error: 'Game not found' });
     }
     
-    const { game, source, record, token } = lookup;
-    
-    if (game.gameId !== gameId) {
-      return res.status(404).json({ error: 'Game not found' });
+    if (game.ended) {
+      return res.status(400).json({ error: 'Game has already ended' });
     }
     
-    if (game.hintsRemaining <= 0) {
-      return res.status(400).json({ error: 'No hints remaining' });
-    }
+    // Increment hints used
+    game.hintsUsed = (game.hintsUsed || 0) + 1;
     
-    // Use MahjongService for proper hint - server-side only
-    const tileTypes = {};
-    for (const [id, tile] of Object.entries(game.tiles)) {
-      if (!tile.removed) {
-        tileTypes[id] = tile.type;
-      }
-    }
+    // Get hint using server-stored state - use tilePositions consistently
+    const hint = MahjongService.getHint(game.tiles, game.tilePositions);
     
-    const hint = MahjongService.getHint(tileTypes, game.tilePositions);
+    // Save updated game state
+    GameModel.updateGame(gameId, game);
     
-    if (!hint) {
-      return res.json({ tileIndex: null, message: 'No valid moves available' });
-    }
-    
-    // Convert tileId to index for frontend
-    const tileIds = Object.keys(game.tiles);
-    const tileIndex = tileIds.indexOf(hint.tile1Id);
-    
-    game.hintsRemaining--;
-    
-    persistGame(source, game, record, token);
-    
-    res.json({ tileIndex });
+    res.json({ hint, hintsUsed: game.hintsUsed });
   } catch (error) {
     console.error('Get hint error:', error);
     res.status(500).json({ error: 'Failed to get hint' });
   }
 });
 
-// POST /api/games/:gameId/shuffle - Shuffle board
-router.post('/:gameId/shuffle', optionalAuth, (req, res) => {
+/**
+ * Shuffle the board
+ * POST /api/games/:gameId/shuffle
+ */
+router.post('/:gameId/shuffle', guestUser, (req, res) => {
   try {
     const { gameId } = req.params;
-    const lookup = findGame(req);
     
-    if (!lookup) {
+    const game = GameModel.getGameById(gameId, req.user.id);
+    if (!game) {
       return res.status(404).json({ error: 'Game not found' });
     }
     
-    const { game, source, record, token } = lookup;
-    
-    if (game.gameId !== gameId) {
-      return res.status(404).json({ error: 'Game not found' });
+    if (game.ended) {
+      return res.status(400).json({ error: 'Game has already ended' });
     }
     
-    if (game.shufflesRemaining <= 0) {
-      return res.status(400).json({ error: 'No shuffles remaining' });
-    }
+    // Generate new board with same difficulty
+    const { tiles: tilesObj, positions: newPositions } = MahjongService.generateBoard(game.difficulty);
     
-    // Get remaining tiles - server-side only, client cannot manipulate
-    const remainingTileIds = Object.keys(game.tiles).filter(id => !game.tiles[id].removed);
-    const remainingTypes = remainingTileIds.map(id => game.tiles[id].type);
+    // Convert tiles object to formatted array
+    const newTilesFormatted = formatTilesFromBoard(tilesObj);
     
-    // Shuffle types using Fisher-Yates
-    for (let i = remainingTypes.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [remainingTypes[i], remainingTypes[j]] = [remainingTypes[j], remainingTypes[i]];
-    }
-    
-    // Reassign types
-    remainingTileIds.forEach((id, i) => {
-      game.tiles[id].type = remainingTypes[i];
+    // Map formatted tiles to existing tiles - keep removed status, apply new types/positions
+    game.tiles = game.tiles.map((existing, index) => {
+      if (existing.removed) {
+        return existing; // Keep removed tiles as-is
+      }
+      // Assign fresh tile data from the new board
+      const fresh = newTilesFormatted[index % newTilesFormatted.length] || newTilesFormatted[0];
+      return {
+        ...fresh,
+        index,
+        removed: false,
+        selected: false
+      };
     });
     
-    game.shufflesRemaining--;
+    game.tilePositions = newPositions;
+    game.selectedTileIndex = undefined;
+    game.shufflesUsed = (game.shufflesUsed || 0) + 1;
     
-    persistGame(source, game, record, token);
+    // Save updated game
+    GameModel.updateGame(gameId, game);
     
-    res.json({
+    res.json({ 
+      success: true, 
       game: {
-        id: gameId,
+        id: game.id,
         difficulty: game.difficulty,
         score: game.score,
+        moves: game.moves,
         matches: game.matches,
-        totalMatches: 72,
-        tiles: Object.values(game.tiles),
+        tiles: game.tiles,
         ended: game.ended,
-        hintsRemaining: game.hintsRemaining,
-        shufflesRemaining: game.shufflesRemaining
-      }
+        status: game.status,
+        shufflesUsed: game.shufflesUsed
+      },
+      message: 'Board shuffled'
     });
   } catch (error) {
     console.error('Shuffle error:', error);
-    res.status(500).json({ error: 'Failed to shuffle board' });
+    res.status(500).json({ error: 'Failed to shuffle' });
   }
 });
 
-// POST /api/games/:gameId/end - End game
-router.post('/:gameId/end', optionalAuth, (req, res) => {
+/**
+ * End the game
+ * POST /api/games/:gameId/end
+ */
+router.post('/:gameId/end', guestUser, (req, res) => {
   try {
     const { gameId } = req.params;
-    const lookup = findGame(req);
     
-    if (!lookup) {
+    const game = GameModel.getGameById(gameId, req.user.id);
+    if (!game) {
       return res.status(404).json({ error: 'Game not found' });
     }
     
-    const { game, source, record, token } = lookup;
-    
-    if (game.gameId !== gameId) {
-      return res.status(404).json({ error: 'Game not found' });
+    if (game.ended) {
+      return res.status(400).json({ error: 'Game has already ended' });
     }
     
-    // Calculate final score server-side - CLIENT SCORE IS IGNORED
-    const finalScore = calculateScore(
-      game.matches,
-      game.moves,
-      game.difficulty,
-      new Date(game.startTime).getTime()
-    );
+    // Calculate final score server-side (NOT from client)
+    const remainingTiles = game.tiles.filter(t => !t.removed).length;
+    const baseScore = game.score || 0;
+    const completionBonus = remainingTiles === 0 ? 100 : 0;
+    const hintsPenalty = (game.hintsUsed || 0) * 5;
+    const shufflesPenalty = (game.shufflesUsed || 0) * 10;
+    const finalScore = Math.max(0, baseScore + completionBonus - hintsPenalty - shufflesPenalty);
     
-    if (source === 'user') {
-      // Authenticated user: record game and add to leaderboard
+    game.ended = true;
+    game.status = 'completed';
+    game.score = finalScore;
+    game.endedAt = new Date().toISOString();
+    
+    // Calculate duration
+    const startTime = new Date(game.createdAt);
+    const endTime = new Date(game.endedAt);
+    const duration = Math.floor((endTime - startTime) / 1000);
+    
+    // Save updated game
+    GameModel.updateGame(gameId, game);
+    
+    // Only record for non-guest users
+    if (!req.user.isGuest) {
       GameModel.recordGame({
         userId: req.user.id,
-        gameType: 'single-player',
+        gameType: game.gameType || 'singlePlayer',
         difficulty: game.difficulty,
         score: finalScore,
-        duration: Math.floor((Date.now() - new Date(game.startTime).getTime()) / 1000),
-        result: game.ended || game.matches >= 72 ? 'completed' : 'forfeited'
+        duration: duration,
+        result: remainingTiles === 0 ? 'win' : 'abandoned'
       });
       
+      // Add to leaderboard
       GameModel.addLeaderboardEntry({
         userId: req.user.id,
         score: finalScore,
-        gameType: 'single-player',
+        gameType: game.gameType || 'singlePlayer',
         difficulty: game.difficulty
       });
-      
-      // Delete active game record from DB
-      const deleteStmt = db.prepare(`DELETE FROM game_states WHERE id = ?`);
-      deleteStmt.run(record.id);
-    } else {
-      // Guest: just remove from in-memory Map — no DB records, no leaderboard
-      // Per Stefan: no guest persistence, no stale data accumulation
-      guestGames.delete(token);
     }
     
     res.json({ 
-      message: 'Game ended successfully',
-      score: finalScore
+      success: true, 
+      game: {
+        id: game.id,
+        difficulty: game.difficulty,
+        score: game.score,
+        moves: game.moves,
+        matches: game.matches,
+        tiles: game.tiles,
+        ended: game.ended,
+        status: game.status,
+        duration: duration
+      },
+      message: 'Game ended'
     });
   } catch (error) {
     console.error('End game error:', error);
