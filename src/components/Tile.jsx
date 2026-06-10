@@ -10,7 +10,7 @@ const TILE_SYMBOLS = {
 
 function Tile({ tile, index, isHint, isSelected, disabled, onClick }) {
   if (tile.removed) {
-    return <div className="tile tile-empty" />;
+    return <div className="tile tile-empty" role="button" />;
   }
 
   const tileClass = `tile ${tile.type || 'bamboo'} ${isHint ? 'tile-hint' : ''} ${isSelected ? 'tile-selected' : ''} ${disabled ? 'tile-disabled' : ''}`;
