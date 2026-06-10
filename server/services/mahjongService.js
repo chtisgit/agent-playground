@@ -94,7 +94,6 @@ export function isTileBlockedFast(tileId, positions, grid) {
   
   // Check left blocking
   const leftBlocked = g.has(`${row},${col - 1},${layer}`);
-  if (!leftBlocked) return false;
   
   // Check right blocking
   const rightBlocked = g.has(`${row},${col + 1},${layer}`);
