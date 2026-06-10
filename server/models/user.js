@@ -38,22 +38,24 @@ export const UserModel = {
   },
 
   /**
-   * Find user by username
+   * Find user by username (includes password_hash for auth verification)
    * @param {string} username 
    * @returns {object|null} User object or null
    */
   findByUsername(username) {
-    const stmt = db.prepare('SELECT * FROM users WHERE username = ?');
+    const stmt = db.prepare('SELECT id, username, email, password_hash, created_at FROM users WHERE username = ?');
     return stmt.get(username) || null;
   },
 
   /**
-   * Find user by email
+   * Find user by email (includes password_hash for auth verification)
+   * NOTE: Currently not used by any route handler — available for future features 
+   * such as "forgot password" or email-based login.
    * @param {string} email 
    * @returns {object|null} User object or null
    */
   findByEmail(email) {
-    const stmt = db.prepare('SELECT * FROM users WHERE email = ?');
+    const stmt = db.prepare('SELECT id, username, email, password_hash, created_at FROM users WHERE email = ?');
     return stmt.get(email) || null;
   },
 

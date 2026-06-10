@@ -18,6 +18,12 @@ async function comparePassword(password, hash) {
 /**
  * Register a new user
  * POST /api/auth/register
+ *
+ * SECURITY NOTE: The distinct error messages for "Username already exists" 
+ * vs "Email already exists" allow user enumeration (an attacker can determine
+ * which usernames/emails are registered). This is a known low-priority issue.
+ * Mitigation: In a future iteration, return a generic "Registration failed" 
+ * message and log the specific error server-side.
  */
 export async function register(req, res) {
   try {
@@ -133,6 +139,11 @@ export async function updateProfile(req, res) {
   try {
     const { email, password } = req.body;
     
+    // Return 400 if no valid fields to update
+    if (!email && !password) {
+      return res.status(400).json({ error: 'No fields to update. Provide email or password.' });
+    }
+
     if (email) {
       // Validate email format if provided
       if (!EMAIL_REGEX.test(email)) {
@@ -142,7 +153,10 @@ export async function updateProfile(req, res) {
       // For now, we only support password updates
     }
     
-    if (password && password.length >= 6) {
+    if (password) {
+      if (password.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      }
       // Properly await the async password hashing operation
       const passwordHash = await hashPassword(password);
       UserModel.updatePassword(req.user.id, passwordHash);
