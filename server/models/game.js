@@ -15,7 +15,7 @@ export const GameModel = {
     const game = {
       id: gameId,
       userId: gameData.userId,
-      gameType: gameData.gameType || 'single',
+      gameType: gameData.gameType || 'singlePlayer',
       difficulty: gameData.difficulty || 'medium',
       tiles: gameData.tiles || [],
       tilePositions: gameData.tilePositions || {},

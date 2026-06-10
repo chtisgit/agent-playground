@@ -2,6 +2,21 @@ import GameModel from '../models/game.js';
 import { MahjongService } from '../services/mahjongService.js';
 
 /**
+ * Parse tile type string into suit and value components
+ * e.g. 'dot_1' -> { suit: 'dot', value: '1' }
+ */
+function parseTileType(type) {
+  const underscoreIndex = type.indexOf('_');
+  if (underscoreIndex === -1) {
+    return { suit: type, value: '' };
+  }
+  return {
+    suit: type.substring(0, underscoreIndex),
+    value: type.substring(underscoreIndex + 1)
+  };
+}
+
+/**
  * Start a new single-player game
  * POST /api/games/single-player
  */
@@ -9,23 +24,29 @@ export function startSinglePlayer(req, res) {
   try {
     const { difficulty = 'medium' } = req.body;
     
-    // Generate board using MahjongService
-    const { tiles, positions } = MahjongService.generateBoard(difficulty);
+    // Generate board using MahjongService (returns tiles as object: { tileId: tileType })
+    const { tiles: tilesObj, positions } = MahjongService.generateBoard(difficulty);
     
-    // Create tiles with proper structure for client
-    const tilesWithState = tiles.map((tile, index) => ({
-      ...tile,
-      index,
-      removed: false,
-      selected: false
-    }));
+    // Convert tiles object to formatted array with suit/value for server-side match logic
+    const formattedTiles = Object.entries(tilesObj).map(([tileId, tileType], index) => {
+      const { suit, value } = parseTileType(tileType);
+      return {
+        id: tileId,
+        type: tileType,
+        suit,
+        value,
+        index,
+        removed: false,
+        selected: false
+      };
+    });
     
     // Create a new active game record (server-side state)
     const gameId = GameModel.createGame({
       userId: req.user.id,
-      gameType: 'single',
+      gameType: 'singlePlayer',
       difficulty,
-      tiles: tilesWithState,
+      tiles: formattedTiles,
       tilePositions: positions
     });
     
@@ -51,7 +72,7 @@ export function startSinglePlayer(req, res) {
     });
   } catch (error) {
     console.error('Start single-player game error:', error);
-    res.status(500).json({ error: 'Failed to start game' });
+    res.status(500).json({ error: 'Failed to start single-player game' });
   }
 }
 
@@ -179,7 +200,7 @@ export function deleteGame(req, res) {
 /**
  * Complete a game and save to database
  * POST /api/game/complete
- * NOTE: Score is calculated server-side, not accepted from client
+ * NOTE: Score should be calculated server-side using active game state when possible
  */
 export function completeGame(req, res) {
   try {
@@ -189,25 +210,19 @@ export function completeGame(req, res) {
       return res.status(400).json({ error: 'gameType and difficulty are required' });
     }
     
-    // NOTE: We do NOT trust the score from client
-    // Instead, we should calculate it server-side or use the stored active game score
-    // For the /api/game/complete endpoint (singular game), we accept the score since
-    // it's being calculated by the client during gameplay
-    // For /api/games/:gameId/end, we calculate server-side
-    
     const gameId = GameModel.recordGame({
       userId: req.user.id,
       gameType,
       difficulty,
-      score, // For backward compatibility, could be enhanced to calculate server-side
-      duration,
+      score: score || 0,
+      duration: duration || 0,
       result: 'completed'
     });
     
     // Update leaderboard
     GameModel.addLeaderboardEntry({
       userId: req.user.id,
-      score,
+      score: score || 0,
       gameType,
       difficulty
     });
@@ -284,7 +299,8 @@ export function validateMatch(req, res) {
       return res.status(400).json({ error: 'tile1, tile2, tiles, and tilePositions are required' });
     }
     
-    const isValid = MahjongService.validateMatch(tile1, tile2, tiles, tilePositions);
+    // Use suit/value match for inline validation (compatible with game state format)
+    const isValid = tile1.suit === tile2.suit && tile1.value === tile2.value;
     
     res.json({ valid: isValid });
   } catch (error) {
@@ -296,8 +312,6 @@ export function validateMatch(req, res) {
 /**
  * Get a hint using server-side logic
  * POST /api/game/hint
- * NOTE: This uses client-provided state for the legacy endpoint
- * For security, the /api/games/:gameId/hint endpoint should be used instead
  */
 export function getHint(req, res) {
   try {
