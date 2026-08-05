@@ -43,7 +43,21 @@ const requireGameToken = (req, res, next) => {
   const { gameId } = req.params;
   const token = req.headers['x-game-token'];
 
-  // Preferred path: token-gated access (guests AND authenticated users)
+  // Hardening (Stefan #374 follow-up): an authenticated NON-guest user always goes
+  // through the JWT path (GameModel.getGameById(req.user.id)). A stale X-Game-Token
+  // header left over from another session/game must NOT 403 them on their own game.
+  const isAuthenticatedUser = !!(req.user && req.user.id && !req.user.isGuest);
+
+  if (isAuthenticatedUser) {
+    const game = GameModel.getGameById(gameId, req.user.id);
+    if (game) {
+      req.game = game;
+      return next();
+    }
+    return res.status(404).json({ error: 'Game not found' });
+  }
+
+  // Guest / token-only sessions: require the X-Game-Token (128-bit crypto.randomUUID())
   if (token) {
     const game = GameModel.getGameByToken(gameId, token);
     if (game) {
@@ -52,16 +66,6 @@ const requireGameToken = (req, res, next) => {
     }
     // Token present but invalid/expired -> 403 (forbidden, not "missing")
     return res.status(403).json({ error: 'Invalid or expired game token' });
-  }
-
-  // Backward compat: JWT-authenticated users access their own games
-  if (req.user && req.user.id) {
-    const game = GameModel.getGameById(gameId, req.user.id);
-    if (game) {
-      req.game = game;
-      return next();
-    }
-    return res.status(404).json({ error: 'Game not found' });
   }
 
   // No token and no valid JWT -> 401
@@ -204,6 +208,9 @@ router.post('/:gameId/move', optionalAuth, requireGameToken, (req, res) => {
         if (remainingTiles === 0) {
           game.ended = true;
           game.status = 'completed';
+          // Hardening (Stefan #374 follow-up): clear the game token at completion so it
+          // cannot be reused for read-only access once the board is fully cleared.
+          GameModel.clearGameToken(gameId);
         }
       }
       
