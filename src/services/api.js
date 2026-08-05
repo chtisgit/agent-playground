@@ -10,29 +10,10 @@ const getAuthHeaders = () => {
   return headers;
 };
 
-// Game token management for guest single-player sessions
-// Server generates crypto.randomUUID() token - client just stores and forwards it
-function getGameToken() {
-  return sessionStorage.getItem('gameToken') || null;
-}
-
-// Common headers for all requests
-const getCommonHeaders = () => {
-  const headers = {
-    'Content-Type': 'application/json',
-    ...getAuthHeaders(),
-  };
-  // Include game token for guest game access (server-generated, unforgeable)
-  const gameToken = getGameToken();
-  if (gameToken) {
-    headers['x-game-token'] = gameToken;
-  }
-  return headers;
-};
-
-// Helper to get game token header for guest single-player access
-// Per Stefan's security decision: X-Game-Token uses crypto.randomUUID()
-// which is not spoofable (unlike x-guest-id approach)
+// Game token header for guest single-player access
+// SECURITY (Stefan #374): X-Game-Token is a server-generated crypto.randomUUID()
+// (128-bit, non-spoofable). ONE storage (localStorage) + ONE header (X-Game-Token).
+// The old getCommonHeaders/sessionStorage path was dead code and removed.
 const getGameTokenHeader = () => {
   const gameToken = localStorage.getItem('gameToken');
   return gameToken ? { 'X-Game-Token': gameToken } : {};

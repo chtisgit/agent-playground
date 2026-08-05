@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import { 
   saveGame, 
   loadGame, 
@@ -19,15 +20,52 @@ import { MahjongService } from '../services/mahjongService.js';
 
 const router = Router();
 
-// Guest user middleware - allows single-player without login
-// Assigns a guest user ID for unauthenticated requests
+// Guest user middleware - allows single-player game creation without login
+// SECURITY (Stefan #374): guest id is a crypto.randomUUID()-based NON-AUTHORIZING
+// session identifier. It is NEVER used for authorization - the 5 game routes use
+// requireGameToken (X-Game-Token header) instead. The old Math.random() approach
+// (1000000 + 900k space, ~900k guessable values) was spoofable and removed.
 const guestUser = (req, res, next) => {
   if (!req.user) {
-    // Generate a guest user ID
-    const guestId = 1000000 + Math.floor(Math.random() * 900000);
-    req.user = { id: guestId, username: 'guest', isGuest: true };
+    req.user = { id: crypto.randomUUID(), username: 'guest', isGuest: true };
   }
   next();
+};
+
+// Token-gated access middleware for game-specific routes
+// SECURITY (Stefan #374): reads X-Game-Token header -> GameModel.getGameByToken(gameId, token)
+// A 128-bit crypto.randomUUID() token is required to access a guest game. Guessing a gameId
+// without the token is rejected (401/403) - this closes the IDOR vulnerability where a
+// client-supplied guest user id could be spoofed.
+// Backward compat: JWT-authenticated users can still access their own games via
+// GameModel.getGameById(gameId, req.user.id) when no X-Game-Token is sent.
+const requireGameToken = (req, res, next) => {
+  const { gameId } = req.params;
+  const token = req.headers['x-game-token'];
+
+  // Preferred path: token-gated access (guests AND authenticated users)
+  if (token) {
+    const game = GameModel.getGameByToken(gameId, token);
+    if (game) {
+      req.game = game;
+      return next();
+    }
+    // Token present but invalid/expired -> 403 (forbidden, not "missing")
+    return res.status(403).json({ error: 'Invalid or expired game token' });
+  }
+
+  // Backward compat: JWT-authenticated users access their own games
+  if (req.user && req.user.id) {
+    const game = GameModel.getGameById(gameId, req.user.id);
+    if (game) {
+      req.game = game;
+      return next();
+    }
+    return res.status(404).json({ error: 'Game not found' });
+  }
+
+  // No token and no valid JWT -> 401
+  return res.status(401).json({ error: 'Game token required' });
 };
 
 /**
@@ -84,20 +122,18 @@ router.post('/generate', optionalAuth, generateGame);
 router.post('/validate', optionalAuth, validateMatch);
 router.post('/hint', optionalAuth, getHint);
 
-// === Game-specific endpoints with gameId parameter - PUBLIC (guest support) ===
+// === Game-specific endpoints with gameId parameter - TOKEN-GATED (guest support) ===
+// SECURITY (Stefan #374): all 5 routes use requireGameToken. Guests must present the
+// crypto.randomUUID() X-Game-Token returned at game creation. JWT users keep backward
+// compat via getGameById(req.user.id).
 
 /**
  * Get game state by ID
  * GET /api/games/:gameId
  */
-router.get('/:gameId', guestUser, (req, res) => {
+router.get('/:gameId', optionalAuth, requireGameToken, (req, res) => {
   try {
-    const { gameId } = req.params;
-    const game = GameModel.getGameById(gameId, req.user.id);
-    
-    if (!game) {
-      return res.status(404).json({ error: 'Game not found' });
-    }
+    const game = req.game;
     
     res.json({ game });
   } catch (error) {
@@ -110,16 +146,13 @@ router.get('/:gameId', guestUser, (req, res) => {
  * Make a move (select a tile or match tiles)
  * POST /api/games/:gameId/move
  */
-router.post('/:gameId/move', guestUser, (req, res) => {
+router.post('/:gameId/move', optionalAuth, requireGameToken, (req, res) => {
   try {
     const { gameId } = req.params;
     const { tileIndex } = req.body;
     
-    // Get game from server-side state
-    const game = GameModel.getGameById(gameId, req.user.id);
-    if (!game) {
-      return res.status(404).json({ error: 'Game not found' });
-    }
+    // Get game from requireGameToken middleware (token-gated)
+    const game = req.game;
     
     if (game.ended) {
       return res.status(400).json({ error: 'Game has already ended' });
@@ -203,14 +236,12 @@ router.post('/:gameId/move', guestUser, (req, res) => {
  * Get hint for the current game
  * GET /api/games/:gameId/hint
  */
-router.get('/:gameId/hint', guestUser, (req, res) => {
+router.get('/:gameId/hint', optionalAuth, requireGameToken, (req, res) => {
   try {
     const { gameId } = req.params;
     
-    const game = GameModel.getGameById(gameId, req.user.id);
-    if (!game) {
-      return res.status(404).json({ error: 'Game not found' });
-    }
+    // Get game from requireGameToken middleware (token-gated)
+    const game = req.game;
     
     if (game.ended) {
       return res.status(400).json({ error: 'Game has already ended' });
@@ -236,14 +267,12 @@ router.get('/:gameId/hint', guestUser, (req, res) => {
  * Shuffle the board
  * POST /api/games/:gameId/shuffle
  */
-router.post('/:gameId/shuffle', guestUser, (req, res) => {
+router.post('/:gameId/shuffle', optionalAuth, requireGameToken, (req, res) => {
   try {
     const { gameId } = req.params;
     
-    const game = GameModel.getGameById(gameId, req.user.id);
-    if (!game) {
-      return res.status(404).json({ error: 'Game not found' });
-    }
+    // Get game from requireGameToken middleware (token-gated)
+    const game = req.game;
     
     if (game.ended) {
       return res.status(400).json({ error: 'Game has already ended' });
@@ -302,14 +331,12 @@ router.post('/:gameId/shuffle', guestUser, (req, res) => {
  * End the game
  * POST /api/games/:gameId/end
  */
-router.post('/:gameId/end', guestUser, (req, res) => {
+router.post('/:gameId/end', optionalAuth, requireGameToken, (req, res) => {
   try {
     const { gameId } = req.params;
     
-    const game = GameModel.getGameById(gameId, req.user.id);
-    if (!game) {
-      return res.status(404).json({ error: 'Game not found' });
-    }
+    // Get game from requireGameToken middleware (token-gated)
+    const game = req.game;
     
     if (game.ended) {
       return res.status(400).json({ error: 'Game has already ended' });
@@ -336,8 +363,11 @@ router.post('/:gameId/end', guestUser, (req, res) => {
     // Save updated game
     GameModel.updateGame(gameId, game);
     
-    // Only record for non-guest users
-    if (!req.user.isGuest) {
+    // Hardening (Stefan #374): clear the game token so it can't be reused after end
+    GameModel.clearGameToken(gameId);
+    
+    // Only record for non-guest users (req.user is undefined for token-only guests)
+    if (req.user && !req.user.isGuest) {
       GameModel.recordGame({
         userId: req.user.id,
         gameType: game.gameType || 'singlePlayer',
@@ -377,4 +407,5 @@ router.post('/:gameId/end', guestUser, (req, res) => {
   }
 });
 
+export { guestUser, requireGameToken };
 export default router;

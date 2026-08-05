@@ -2,137 +2,18 @@ import db from './database.js';
 
 // In-memory store for active games (server-side state management)
 const activeGames = new Map();
+// Map of gameToken -> gameId for token-gated guest access
+// SECURITY: token is a crypto.randomUUID() (128-bit, non-spoofable) generated server-side
+const gameTokens = new Map();
 let gameIdCounter = 1;
 
 export const GameModel = {
   // === In-memory active game methods (for real-time game management) ===
-  
-  /**
-   * Create a new active game
-   * @param {object} gameData 
-   * @returns {number} Game ID
-   */
-  createGame(gameData) {
-    const gameId = gameIdCounter++;
-    const game = {
-      id: gameId,
-      userId: gameData.userId,
-      gameType: gameData.gameType,
-      difficulty: gameData.difficulty,
-      tiles: gameData.tiles,
-      tilePositions: gameData.tilePositions,
-      score: 0,
-      moves: 0,
-      matches: 0,
-      status: 'active',
-      createdAt: new Date(),
-      gameToken: gameData.gameToken || null
-    };
-    activeGames.set(gameId, game);
-    
-    // Register game token for guest access
-    if (gameData.gameToken) {
-      gameTokens.set(gameData.gameToken, gameId);
-    }
-    
-    return gameId;
-  },
-
-  /**
-   * Get an active game by ID with user verification
-   * @param {number} gameId 
-   * @param {number} userId 
-   * @returns {object|null} Game object or null
-   */
-  getGameById(gameId, userId) {
-    const game = activeGames.get(parseInt(gameId));
-    if (game && game.userId === userId) {
-      return game;
-    }
-    return null;
-  },
-
-  /**
-   * Get an active game by game token (for guest access)
-   * @param {number} gameId 
-   * @param {string} token - crypto.randomUUID() game token
-   * @returns {object|null} Game object or null
-   */
-  getGameByToken(gameId, token) {
-    const id = parseInt(gameId);
-    const game = activeGames.get(id);
-    if (game && game.gameToken === token) {
-      return game;
-    }
-    return null;
-  },
-
-  /**
-   * Update an active game
-   * @param {number} gameId 
-   * @param {object} gameData 
-   * @returns {boolean} Success status
-   */
-  updateGame(gameId, gameData) {
-    const id = parseInt(gameId);
-    if (activeGames.has(id)) {
-      const existing = activeGames.get(id);
-      activeGames.set(id, { ...existing, ...gameData });
-      return true;
-    }
-    return false;
-  },
-
-  /**
-   * Delete an active game
-   * @param {number} gameId 
-   * @returns {boolean} Success status
-   */
-  deleteGame(gameId) {
-    const game = activeGames.get(parseInt(gameId));
-    if (game && game.gameToken) {
-      gameTokens.delete(game.gameToken);
-    }
-    return activeGames.delete(parseInt(gameId));
-  },
-
-  // === Persistent game state methods (for save/resume) ===
-  
-  /**
-   * Create a new game
-   * @param {object} gameData 
-   * @returns {number} Game ID
-   */
-  createGame(gameData) {
-    const gameId = gameIdCounter++;
-    const game = {
-      id: gameId,
-      userId: gameData.userId,
-      gameType: gameData.gameType,
-      difficulty: gameData.difficulty,
-      tiles: gameData.tiles,
-      tilePositions: gameData.tilePositions,
-      score: 0,
-      moves: 0,
-      status: 'active',
-      createdAt: new Date()
-    };
-    activeGames.set(gameId, game);
-    return gameId;
-  },
-
-  /**
-   * Get an active game
-   * @param {number} gameId 
-   * @returns {object|null} Game object or null
-   */
-  getGame(gameId) {
-    return activeGames.get(gameId) || null;
-  },
 
   /**
    * Create a new active game
-   * @param {object} gameData 
+   * @param {object} gameData
+   * @param {string} [gameData.gameToken] - crypto.randomUUID() token for guest access (optional)
    * @returns {number} Game ID
    */
   createGame(gameData) {
@@ -151,16 +32,23 @@ export const GameModel = {
       shufflesUsed: 0,
       status: 'active',
       createdAt: new Date().toISOString(),
-      ended: false
+      ended: false,
+      gameToken: gameData.gameToken || null
     };
     activeGames.set(gameId, game);
+
+    // Register game token for guest access
+    if (gameData.gameToken) {
+      gameTokens.set(gameData.gameToken, gameId);
+    }
+
     return gameId;
   },
 
   /**
    * Get an active game by ID with user verification
-   * @param {number} gameId 
-   * @param {number} userId 
+   * @param {number} gameId
+   * @param {number} userId
    * @returns {object|null} Game object or null
    */
   getGameById(gameId, userId) {
@@ -172,9 +60,33 @@ export const GameModel = {
   },
 
   /**
+   * Get an active game by game token (for guest access)
+   * @param {number} gameId
+   * @param {string} token - crypto.randomUUID() game token
+   * @returns {object|null} Game object or null
+   */
+  getGameByToken(gameId, token) {
+    const id = parseInt(gameId);
+    const game = activeGames.get(id);
+    if (game && game.gameToken === token) {
+      return game;
+    }
+    return null;
+  },
+
+  /**
+   * Get an active game without authorization check (internal use)
+   * @param {number} gameId
+   * @returns {object|null} Game object or null
+   */
+  getGame(gameId) {
+    return activeGames.get(parseInt(gameId)) || null;
+  },
+
+  /**
    * Update an active game
-   * @param {number} gameId 
-   * @param {object} gameData 
+   * @param {number} gameId
+   * @param {object} gameData
    * @returns {boolean} Success status
    */
   updateGame(gameId, gameData) {
@@ -189,16 +101,40 @@ export const GameModel = {
 
   /**
    * Delete an active game
-   * @param {number} gameId 
+   * @param {number} gameId
    * @returns {boolean} Success status
    */
   deleteGame(gameId) {
-    return activeGames.delete(parseInt(gameId));
+    const id = parseInt(gameId);
+    const game = activeGames.get(id);
+    if (game && game.gameToken) {
+      gameTokens.delete(game.gameToken);
+    }
+    return activeGames.delete(id);
   },
 
   /**
+   * Clear the game token for an active game (e.g. when game ends)
+   * Hardening: prevents token reuse after game completion
+   * @param {number} gameId
+   * @returns {boolean} Success status
+   */
+  clearGameToken(gameId) {
+    const id = parseInt(gameId);
+    const game = activeGames.get(id);
+    if (game && game.gameToken) {
+      gameTokens.delete(game.gameToken);
+      game.gameToken = null;
+      return true;
+    }
+    return false;
+  },
+
+  // === Persistent game state methods (for save/resume) ===
+
+  /**
    * Save a game state for later resume (to database)
-   * @param {object} gameData 
+   * @param {object} gameData
    * @returns {number} Saved state ID
    */
   saveGameState(gameData) {
@@ -222,8 +158,8 @@ export const GameModel = {
 
   /**
    * Get a saved game state
-   * @param {number} stateId 
-   * @param {number} userId 
+   * @param {number} stateId
+   * @param {number} userId
    * @returns {object|null} Game state or null
    */
   getGameState(stateId, userId) {
@@ -244,7 +180,7 @@ export const GameModel = {
 
   /**
    * Get latest saved game state for a user
-   * @param {number} userId 
+   * @param {number} userId
    * @returns {object|null} Latest game state or null
    */
   getLatestGameState(userId) {
@@ -267,8 +203,8 @@ export const GameModel = {
 
   /**
    * Update an existing game state
-   * @param {number} stateId 
-   * @param {object} gameData 
+   * @param {number} stateId
+   * @param {object} gameData
    * @returns {boolean} Success status
    */
   updateGameState(stateId, gameData) {
@@ -291,8 +227,8 @@ export const GameModel = {
 
   /**
    * Delete a saved game state
-   * @param {number} stateId 
-   * @param {number} userId 
+   * @param {number} stateId
+   * @param {number} userId
    * @returns {boolean} Success status
    */
   deleteGameState(stateId, userId) {
@@ -306,7 +242,7 @@ export const GameModel = {
 
   /**
    * Record a completed game
-   * @param {object} gameData 
+   * @param {object} gameData
    * @returns {number} Game ID
    */
   recordGame(gameData) {
@@ -327,8 +263,8 @@ export const GameModel = {
 
   /**
    * Get user's game history
-   * @param {number} userId 
-   * @param {number} limit 
+   * @param {number} userId
+   * @param {number} limit
    * @returns {array} List of games
    */
   getGameHistory(userId, limit = 20) {
@@ -345,9 +281,9 @@ export const GameModel = {
 
   /**
    * Get leaderboard
-   * @param {string} gameType 
-   * @param {string} difficulty 
-   * @param {number} limit 
+   * @param {string} gameType
+   * @param {string} difficulty
+   * @param {number} limit
    * @returns {array} Leaderboard entries
    */
   getLeaderboard(gameType = null, difficulty = null, limit = 10) {
@@ -357,7 +293,7 @@ export const GameModel = {
       JOIN users u ON l.user_id = u.id
     `;
     const params = [];
-    
+
     if (gameType || difficulty) {
       query += ' WHERE ';
       if (gameType) {
@@ -370,17 +306,17 @@ export const GameModel = {
         params.push(difficulty);
       }
     }
-    
+
     query += ' ORDER BY l.score DESC LIMIT ?';
     params.push(limit);
-    
+
     const stmt = db.prepare(query);
     return stmt.all(...params);
   },
 
   /**
    * Add a leaderboard entry
-   * @param {object} entryData 
+   * @param {object} entryData
    * @returns {number} Entry ID
    */
   addLeaderboardEntry(entryData) {
