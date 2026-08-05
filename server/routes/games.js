@@ -43,8 +43,8 @@ const requireGameToken = (req, res, next) => {
   const { gameId } = req.params;
   const token = req.headers['x-game-token'];
 
-  // Hardening (Stefan #374 follow-up): an authenticated NON-guest user always goes
-  // through the JWT path (GameModel.getGameById(req.user.id)). A stale X-Game-Token
+  // Hardening (Stefan #374 follow-up): an authenticated NON-guest user first goes
+  // through the JWT path (GameModel.getGameById(req.user.id)) so a stale X-Game-Token
   // header left over from another session/game must NOT 403 them on their own game.
   const isAuthenticatedUser = !!(req.user && req.user.id && !req.user.isGuest);
 
@@ -54,10 +54,13 @@ const requireGameToken = (req, res, next) => {
       req.game = game;
       return next();
     }
-    return res.status(404).json({ error: 'Game not found' });
+    // No owned game found: fall through so a valid X-Game-Token can still authorize
+    // a guest-owned game (e.g. started as guest pre-login, then logged in mid-game).
+    // Product decision (Boris): token = capability for guest games regardless of login.
   }
 
-  // Guest / token-only sessions: require the X-Game-Token (128-bit crypto.randomUUID())
+  // Token path: guests, token-only sessions, and authenticated users whose JWT
+  // ownership check found no game but who hold the 128-bit capability token.
   if (token) {
     const game = GameModel.getGameByToken(gameId, token);
     if (game) {
@@ -69,7 +72,12 @@ const requireGameToken = (req, res, next) => {
   }
 
   // No token and no valid JWT -> 401
-  return res.status(401).json({ error: 'Game token required' });
+  if (!isAuthenticatedUser) {
+    return res.status(401).json({ error: 'Game token required' });
+  }
+
+  // Authenticated user with no owned game and no token -> 404 (do not leak existence)
+  return res.status(404).json({ error: 'Game not found' });
 };
 
 /**

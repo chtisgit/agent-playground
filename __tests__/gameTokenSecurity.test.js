@@ -193,12 +193,38 @@ describe('requireGameToken middleware (#374)', () => {
     GameModel.deleteGame(gameId);
   });
 
-  it('STALE-TOKEN FIX (#374 follow-up): token alone never authorizes a non-owner (JWT path enforces ownership)', () => {
-    // Game belongs to user 6; attacker is authenticated as user 5 and presents game 6's token
-    const gameId = createGame('token-owner', 6);
+  it('FALL-THROUGH (#374 follow-up, Boris Option 1): authenticated user with a VALID X-Game-Token for a guest-owned game is authorized via the token path', () => {
+    // Game is guest-owned (guest UUID userId); user 5 is logged in (JWT) and holds the game's token
+    const gameId = createGame('token-owner', 'guest-uuid-123');
     req.params = { gameId: String(gameId) };
     req.user = { id: 5, username: 'alice' };
     req.headers['x-game-token'] = 'token-owner';
+    requireGameToken(req, res, next);
+    // JWT path finds no owned game -> falls through to token path; valid token grants access
+    expect(res.status).not.toHaveBeenCalled();
+    expect(req.game).not.toBeUndefined();
+    expect(req.game.id).toBe(gameId);
+    expect(next).toHaveBeenCalled();
+    GameModel.deleteGame(gameId);
+  });
+
+  it('FALL-THROUGH (#374 follow-up, Boris Option 1): authenticated user with an INVALID token for a guest-owned game gets 403', () => {
+    const gameId = createGame('token-owner', 'guest-uuid-123');
+    req.params = { gameId: String(gameId) };
+    req.user = { id: 5, username: 'alice' };
+    req.headers['x-game-token'] = 'wrong-token';
+    requireGameToken(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Invalid or expired game token' });
+    expect(next).not.toHaveBeenCalled();
+    GameModel.deleteGame(gameId);
+  });
+
+  it('FALL-THROUGH (#374 follow-up, Boris Option 1): authenticated user with no owned game and no token gets 404', () => {
+    const gameId = createGame('token-owner', 'guest-uuid-123');
+    req.params = { gameId: String(gameId) };
+    req.user = { id: 5, username: 'alice' };
+    // no X-Game-Token header
     requireGameToken(req, res, next);
     expect(res.status).toHaveBeenCalledWith(404);
     expect(res.json).toHaveBeenCalledWith({ error: 'Game not found' });
