@@ -5,7 +5,6 @@ import { initializeDatabase } from './models/database.js';
 import gameRoutes from './routes/game.js';
 import gamesRoutes from './routes/games.js';
 import authRoutes from './routes/auth.js';
-import gamesRoutes from './routes/games.js';
 
 // CORS allowed origins - restrict based on environment
 const getAllowedOrigins = () => {
