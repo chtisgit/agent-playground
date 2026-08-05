@@ -7,39 +7,32 @@
  *   JWT backward compat, IDOR proof (guest A token can't access guest B)
  * - startSinglePlayer controller: generates crypto.randomUUID() gameToken, returns in 201
  * - Source-level checks: no Math.random() in authorization path
+ *
+ * NOTE (ESM/jest): this repo runs jest with --experimental-vm-modules and has no babel
+ * transform (jest.config.js `transform: {}`). jest.mock() is not hoisted in ESM, so
+ * these tests exercise the REAL in-memory GameModel (createGame / getGameByToken /
+ * getGameById) instead of module mocks - same isolation for the middleware under test,
+ * and consistent with __tests__/gameModel.test.js.
  */
 
 import fs from 'fs';
-
-// Mock GameModel to isolate middleware behavior
-jest.mock('../server/models/game.js', () => {
-  const mockGameModel = {
-    getGameByToken: jest.fn(),
-    getGameById: jest.fn(),
-    createGame: jest.fn(),
-    updateGame: jest.fn(),
-    clearGameToken: jest.fn(),
-    deleteGame: jest.fn(),
-    getGame: jest.fn(),
-  };
-  return { __esModule: true, default: mockGameModel };
-});
-
-// Mock MahjongService to isolate controller logic
-jest.mock('../server/services/mahjongService.js', () => ({
-  MahjongService: {
-    generateBoard: jest.fn(),
-    tilesMatch: jest.fn(),
-    getHint: jest.fn(),
-  },
-}));
-
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { guestUser, requireGameToken } from '../server/routes/games.js';
 import { startSinglePlayer } from '../server/controllers/gameController.js';
 import GameModel from '../server/models/game.js';
-import { MahjongService } from '../server/services/mahjongService.js';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+// Strip comments before source checks: the codebase legitimately documents the OLD
+// Math.random() approach in comments (e.g. "replaces the old Math.random() guest id").
+// The criterion is that Math.random must not be USED in the auth path - so we check
+// the code after removing comments.
+const stripComments = (src) =>
+  src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1')
+    .trim();
+
 
 describe('guestUser middleware (#374)', () => {
   let req, res, next;
@@ -71,14 +64,14 @@ describe('guestUser middleware (#374)', () => {
   });
 
   it('source check: guestUser middleware must not use Math.random()', () => {
-    const source = fs.readFileSync('server/routes/games.js', 'utf8');
+    const source = stripComments(fs.readFileSync('server/routes/games.js', 'utf8'));
     const guestSection = source.split('const guestUser')[1].split('const requireGameToken')[0];
     expect(guestSection).not.toMatch(/Math\.random/);
   });
 
   it('source check: no Math.random() anywhere in the game authorization path', () => {
-    const gamesSource = fs.readFileSync('server/routes/games.js', 'utf8');
-    const controllerSource = fs.readFileSync('server/controllers/gameController.js', 'utf8');
+    const gamesSource = stripComments(fs.readFileSync('server/routes/games.js', 'utf8'));
+    const controllerSource = stripComments(fs.readFileSync('server/controllers/gameController.js', 'utf8'));
     // Authorization must rely on crypto.randomUUID, never Math.random
     expect(gamesSource).not.toMatch(/Math\.random/);
     expect(controllerSource).not.toMatch(/Math\.random/);
@@ -87,7 +80,17 @@ describe('guestUser middleware (#374)', () => {
 
 describe('requireGameToken middleware (#374)', () => {
   let req, res, next;
-  const fakeGame = { id: 1, userId: 'guest-a', gameToken: 'token-owner' };
+
+  // Uses the REAL in-memory GameModel (same singleton the middleware references).
+  const createGame = (token, userId = 'guest-a') =>
+    GameModel.createGame({
+      userId,
+      gameType: 'singlePlayer',
+      difficulty: 'medium',
+      tiles: [],
+      tilePositions: {},
+      gameToken: token,
+    });
 
   beforeEach(() => {
     req = { params: { gameId: '1' }, headers: {} };
@@ -105,53 +108,66 @@ describe('requireGameToken middleware (#374)', () => {
 
   it('should return 403 when token is present but invalid', () => {
     req.headers['x-game-token'] = 'attacker-token';
-    GameModel.getGameByToken.mockReturnValue(null);
     requireGameToken(req, res, next);
-    expect(GameModel.getGameByToken).toHaveBeenCalledWith('1', 'attacker-token');
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith({ error: 'Invalid or expired game token' });
     expect(next).not.toHaveBeenCalled();
   });
 
   it('should attach game and call next when token is valid', () => {
+    const gameId = createGame('token-owner');
+    req.params = { gameId: String(gameId) };
     req.headers['x-game-token'] = 'token-owner';
-    GameModel.getGameByToken.mockReturnValue(fakeGame);
     requireGameToken(req, res, next);
-    expect(GameModel.getGameByToken).toHaveBeenCalledWith('1', 'token-owner');
-    expect(req.game).toBe(fakeGame);
+    expect(req.game).not.toBeUndefined();
+    expect(req.game.id).toBe(gameId);
     expect(next).toHaveBeenCalled();
     expect(res.status).not.toHaveBeenCalled();
+    GameModel.deleteGame(gameId);
   });
 
   it('should allow JWT users backward compat via getGameById when no token sent', () => {
+    const gameId = createGame('token-1', 5);
+    req.params = { gameId: String(gameId) };
     req.user = { id: 5, username: 'alice' };
-    GameModel.getGameById.mockReturnValue(fakeGame);
     requireGameToken(req, res, next);
-    expect(GameModel.getGameById).toHaveBeenCalledWith('1', 5);
-    expect(req.game).toBe(fakeGame);
+    expect(req.game).not.toBeUndefined();
+    expect(req.game.id).toBe(gameId);
     expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+    GameModel.deleteGame(gameId);
   });
 
   it('should return 404 for JWT user when game belongs to another user', () => {
-    req.user = { id: 6, username: 'bob' };
-    GameModel.getGameById.mockReturnValue(null);
+    const gameId = createGame('token-2', 6);
+    req.params = { gameId: String(gameId) };
+    req.user = { id: 5, username: 'alice' };
     requireGameToken(req, res, next);
     expect(res.status).toHaveBeenCalledWith(404);
     expect(res.json).toHaveBeenCalledWith({ error: 'Game not found' });
     expect(next).not.toHaveBeenCalled();
+    GameModel.deleteGame(gameId);
   });
 
   it('IDOR PROOF: guest A token cannot access guest B game', () => {
-    // Guest A's game (id 1) only authorizes with token 'token-A'
-    GameModel.getGameByToken.mockImplementation((gameId, token) =>
-      token === 'token-A' ? { id: 1, gameToken: 'token-A' } : null
-    );
-    // Guest B tries game 1 with their own token 'token-B'
+    const gameA = createGame('token-A', 'guest-A');
+    const gameB = createGame('token-B', 'guest-B');
+
+    // Guest B tries game A with their own token 'token-B'
+    req.params = { gameId: String(gameA) };
     req.headers['x-game-token'] = 'token-B';
     requireGameToken(req, res, next);
-    expect(GameModel.getGameByToken).toHaveBeenCalledWith('1', 'token-B');
     expect(res.status).toHaveBeenCalledWith(403);
     expect(next).not.toHaveBeenCalled();
+
+    // Guest A's own token still works on game A
+    req.headers['x-game-token'] = 'token-A';
+    requireGameToken(req, res, next);
+    expect(next).toHaveBeenCalled();
+    expect(req.game.id).toBe(gameA);
+
+    GameModel.deleteGame(gameA);
+    GameModel.deleteGame(gameB);
   });
 
   it('guessed gameId without token is rejected (no enumeration via 401/403)', () => {
@@ -159,7 +175,6 @@ describe('requireGameToken middleware (#374)', () => {
     req.params = { gameId: '99999' };
     requireGameToken(req, res, next);
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(GameModel.getGameByToken).not.toHaveBeenCalled();
     expect(next).not.toHaveBeenCalled();
   });
 });
@@ -174,35 +189,18 @@ describe('startSinglePlayer controller (#374)', () => {
     };
     res = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
     jest.clearAllMocks();
-    MahjongService.generateBoard.mockReturnValue({
-      tiles: { tile_0: 'dot_1', tile_1: 'dot_1' },
-      positions: { tile_0: { row: 0, col: 0, layer: 0 }, tile_1: { row: 0, col: 1, layer: 0 } },
-    });
-    GameModel.createGame.mockImplementation((data) => {
-      GameModel.__lastCreated = data;
-      return 42;
-    });
-    GameModel.getGameById.mockReturnValue({
-      id: 42,
-      gameType: 'singlePlayer',
-      difficulty: 'medium',
-      tiles: [],
-      tilePositions: {},
-      score: 0,
-      moves: 0,
-      matches: 0,
-      ended: false,
-      status: 'active',
-      hintsUsed: 0,
-      shufflesUsed: 0,
-    });
   });
 
-  it('should generate a 128-bit crypto.randomUUID() gameToken and pass to createGame', () => {
+  it('should generate a 128-bit crypto.randomUUID() gameToken and store it on the game', () => {
     startSinglePlayer(req, res);
-    const created = GameModel.__lastCreated;
-    expect(created.gameToken).toMatch(UUID_REGEX);
-    expect(created.userId).toBe('guest-uuid-123');
+    expect(res.status).toHaveBeenCalledWith(201);
+    const payload = res.json.mock.calls[0][0];
+    expect(payload.gameToken).toMatch(UUID_REGEX);
+    // Token must be persisted server-side so getGameByToken can authorize it later
+    const game = GameModel.getGameById(payload.game.id, 'guest-uuid-123');
+    expect(game).not.toBeNull();
+    expect(game.gameToken).toBe(payload.gameToken);
+    GameModel.deleteGame(payload.game.id);
   });
 
   it('should include gameToken in the 201 response', () => {
@@ -210,14 +208,16 @@ describe('startSinglePlayer controller (#374)', () => {
     expect(res.status).toHaveBeenCalledWith(201);
     const payload = res.json.mock.calls[0][0];
     expect(payload.gameToken).toMatch(UUID_REGEX);
-    expect(payload.game.id).toBe(42);
+    expect(payload.game.id).toBeGreaterThan(0);
+    expect(payload.status).toBe('active');
+    GameModel.deleteGame(payload.game.id);
   });
 
   it('should generate a different token for each game (non-reuse)', () => {
     startSinglePlayer(req, res);
-    const firstToken = GameModel.__lastCreated.gameToken;
+    const firstToken = res.json.mock.calls[0][0].gameToken;
     startSinglePlayer(req, res);
-    const secondToken = GameModel.__lastCreated.gameToken;
+    const secondToken = res.json.mock.calls[1][0].gameToken;
     expect(firstToken).not.toBe(secondToken);
     expect(firstToken).toMatch(UUID_REGEX);
     expect(secondToken).toMatch(UUID_REGEX);
