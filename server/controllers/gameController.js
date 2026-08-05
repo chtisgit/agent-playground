@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import GameModel from '../models/game.js';
 import { MahjongService } from '../services/mahjongService.js';
 
@@ -41,13 +42,18 @@ export function startSinglePlayer(req, res) {
       };
     });
     
+    // Generate a 128-bit crypto.randomUUID() game token for token-gated guest access
+    // SECURITY (Stefan #374): non-spoofable, replaces the old Math.random() guest id auth
+    const gameToken = crypto.randomUUID();
+    
     // Create a new active game record (server-side state)
     const gameId = GameModel.createGame({
       userId: req.user.id,
       gameType: 'singlePlayer',
       difficulty,
       tiles: formattedTiles,
-      tilePositions: positions
+      tilePositions: positions,
+      gameToken
     });
     
     // Get the created game
@@ -68,6 +74,7 @@ export function startSinglePlayer(req, res) {
         hintsUsed: game.hintsUsed,
         shufflesUsed: game.shufflesUsed
       },
+      gameToken,
       status: 'active'
     });
   } catch (error) {
