@@ -43,7 +43,24 @@ const requireGameToken = (req, res, next) => {
   const { gameId } = req.params;
   const token = req.headers['x-game-token'];
 
-  // Preferred path: token-gated access (guests AND authenticated users)
+  // Hardening (Stefan #374 follow-up): an authenticated NON-guest user first goes
+  // through the JWT path (GameModel.getGameById(req.user.id)) so a stale X-Game-Token
+  // header left over from another session/game must NOT 403 them on their own game.
+  const isAuthenticatedUser = !!(req.user && req.user.id && !req.user.isGuest);
+
+  if (isAuthenticatedUser) {
+    const game = GameModel.getGameById(gameId, req.user.id);
+    if (game) {
+      req.game = game;
+      return next();
+    }
+    // No owned game found: fall through so a valid X-Game-Token can still authorize
+    // a guest-owned game (e.g. started as guest pre-login, then logged in mid-game).
+    // Product decision (Boris): token = capability for guest games regardless of login.
+  }
+
+  // Token path: guests, token-only sessions, and authenticated users whose JWT
+  // ownership check found no game but who hold the 128-bit capability token.
   if (token) {
     const game = GameModel.getGameByToken(gameId, token);
     if (game) {
@@ -54,18 +71,13 @@ const requireGameToken = (req, res, next) => {
     return res.status(403).json({ error: 'Invalid or expired game token' });
   }
 
-  // Backward compat: JWT-authenticated users access their own games
-  if (req.user && req.user.id) {
-    const game = GameModel.getGameById(gameId, req.user.id);
-    if (game) {
-      req.game = game;
-      return next();
-    }
-    return res.status(404).json({ error: 'Game not found' });
+  // No token and no valid JWT -> 401
+  if (!isAuthenticatedUser) {
+    return res.status(401).json({ error: 'Game token required' });
   }
 
-  // No token and no valid JWT -> 401
-  return res.status(401).json({ error: 'Game token required' });
+  // Authenticated user with no owned game and no token -> 404 (do not leak existence)
+  return res.status(404).json({ error: 'Game not found' });
 };
 
 /**
@@ -204,6 +216,9 @@ router.post('/:gameId/move', optionalAuth, requireGameToken, (req, res) => {
         if (remainingTiles === 0) {
           game.ended = true;
           game.status = 'completed';
+          // Hardening (Stefan #374 follow-up): clear the game token at completion so it
+          // cannot be reused for read-only access once the board is fully cleared.
+          GameModel.clearGameToken(gameId);
         }
       }
       

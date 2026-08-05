@@ -177,6 +177,60 @@ describe('requireGameToken middleware (#374)', () => {
     expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
   });
+
+  it('STALE-TOKEN FIX (#374 follow-up): authenticated non-guest with a stale X-Game-Token reaches their own game via JWT path (no 403)', () => {
+    const gameId = createGame('token-owner', 5);
+    req.params = { gameId: String(gameId) };
+    req.user = { id: 5, username: 'alice' };
+    // Stale token left over from another session/game - NOT this game's token
+    req.headers['x-game-token'] = 'stale-token-from-another-game';
+    requireGameToken(req, res, next);
+    // Must NOT 403 on token mismatch: JWT ownership takes precedence
+    expect(res.status).not.toHaveBeenCalled();
+    expect(req.game).not.toBeUndefined();
+    expect(req.game.id).toBe(gameId);
+    expect(next).toHaveBeenCalled();
+    GameModel.deleteGame(gameId);
+  });
+
+  it('FALL-THROUGH (#374 follow-up, Boris Option 1): authenticated user with a VALID X-Game-Token for a guest-owned game is authorized via the token path', () => {
+    // Game is guest-owned (guest UUID userId); user 5 is logged in (JWT) and holds the game's token
+    const gameId = createGame('token-owner', 'guest-uuid-123');
+    req.params = { gameId: String(gameId) };
+    req.user = { id: 5, username: 'alice' };
+    req.headers['x-game-token'] = 'token-owner';
+    requireGameToken(req, res, next);
+    // JWT path finds no owned game -> falls through to token path; valid token grants access
+    expect(res.status).not.toHaveBeenCalled();
+    expect(req.game).not.toBeUndefined();
+    expect(req.game.id).toBe(gameId);
+    expect(next).toHaveBeenCalled();
+    GameModel.deleteGame(gameId);
+  });
+
+  it('FALL-THROUGH (#374 follow-up, Boris Option 1): authenticated user with an INVALID token for a guest-owned game gets 403', () => {
+    const gameId = createGame('token-owner', 'guest-uuid-123');
+    req.params = { gameId: String(gameId) };
+    req.user = { id: 5, username: 'alice' };
+    req.headers['x-game-token'] = 'wrong-token';
+    requireGameToken(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Invalid or expired game token' });
+    expect(next).not.toHaveBeenCalled();
+    GameModel.deleteGame(gameId);
+  });
+
+  it('FALL-THROUGH (#374 follow-up, Boris Option 1): authenticated user with no owned game and no token gets 404', () => {
+    const gameId = createGame('token-owner', 'guest-uuid-123');
+    req.params = { gameId: String(gameId) };
+    req.user = { id: 5, username: 'alice' };
+    // no X-Game-Token header
+    requireGameToken(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Game not found' });
+    expect(next).not.toHaveBeenCalled();
+    GameModel.deleteGame(gameId);
+  });
 });
 
 describe('startSinglePlayer controller (#374)', () => {
@@ -229,5 +283,17 @@ describe('end route guard (#374)', () => {
     const source = fs.readFileSync('server/routes/games.js', 'utf8');
     // The end handler must not crash on token-only guests: guard req.user first
     expect(source).toMatch(/if \(req\.user && !req\.user\.isGuest\)/);
+  });
+});
+
+describe('move handler completion hardening (#374 follow-up)', () => {
+  it('source check: move handler clears the game token when the board is fully cleared', () => {
+    const source = fs.readFileSync('server/routes/games.js', 'utf8');
+    // Isolate the move handler (from '/:gameId/move' up to '/:gameId/hint')
+    const moveSection = source.split("router.post('/:gameId/move'")[1].split("router.get('/:gameId/hint'")[0];
+    expect(moveSection).toMatch(/remainingTiles === 0/);
+    // clearGameToken must be invoked in the completion branch of the MOVE handler,
+    // not only in /end (the /end clearGameToken sits outside this section)
+    expect(moveSection).toMatch(/GameModel\.clearGameToken\(gameId\)/);
   });
 });
